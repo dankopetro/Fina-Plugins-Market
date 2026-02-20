@@ -1,0 +1,2 @@
+tinytuya                # Control de dispositivos Tuya (Timbre, enchufes)
+scapy                   # Análisis de red (Timbre Doorbell)

@@ -1,0 +1,8 @@
+name: "Fina TV Manager"
+version: "1.1.0"
+author: "Fina Team"
+description: "Control modular de Smart TVs (TCL, Android TV, etc.) via ADB"
+enabled: true
+priority: 50
+main_file: "tv.py"
+main_class: "TVPlugin"

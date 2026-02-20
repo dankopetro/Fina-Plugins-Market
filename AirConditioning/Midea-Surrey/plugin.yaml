@@ -1,0 +1,56 @@
+name: "Clima"
+version: "1.0.0"
+description: "Control del Aire Acondicionado Surrey (Midea)"
+main: "clima.py"
+enabled: true
+priority: 50
+intents:
+  - name: "aire_encender"
+    patterns:
+      - "prende el aire"
+      - "encende el aire"
+      - "activar aire"
+    response: "Encendiendo el aire acondicionado."
+    action: "clima.py --power on --silent"
+
+  - name: "aire_apagar"
+    patterns:
+      - "apaga el aire"
+      - "apagar aire"
+      - "desactivar aire"
+    response: "Apagando el aire acondicionado."
+    action: "clima.py --power off --silent"
+
+  - name: "aire_temperatura"
+    patterns:
+      - "pone el aire en"
+      - "aire en"
+      - "setea el aire a"
+      - "cambia la temperatura a"
+    response: "Ajustando temperatura a {temp} grados."
+    action: "clima.py --temp {temp} --silent"
+
+  - name: "aire_estado"
+    patterns:
+      - "como esta el aire"
+      - "estado del aire"
+      - "temperatura del aire"
+    action: "clima.py --status"
+
+  - name: "aire_swing"
+    patterns:
+      - "activa el movimiento del aire"
+      - "que se mueva el aire"
+      - "swing del aire"
+      - "detener el movimiento del aire"
+    response: "Ajustando movimiento del aire."
+    action: "clima.py --swing {state} --silent"
+
+  - name: "aire_turbo"
+    patterns:
+      - "modo turbo"
+      - "enfriamiento rapido"
+      - "maxima potencia"
+      - "desactivar turbo"
+    response: "Ajustando modo turbo."
+    action: "clima.py --turbo {state} --silent"
