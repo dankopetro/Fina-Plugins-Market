@@ -1,0 +1,17 @@
+name: "Doorbell"
+version: "3.0.0"
+description: "Timbre Inteligente V3 (FFmpeg Puro)"
+main: "monitor_ergen.py"
+enabled: true
+priority: 50
+intents:
+  - name: "doorbell_hangup"
+    patterns:
+      - "corta el timbre"
+      - "colga el timbre"
+      - "terminar llamada"
+      - "corta la llamada"
+      - "cerrar timbre"
+      - "colgar"
+    response: "Cortando la comunicación."
+    action: "hangup_doorbell.py"
