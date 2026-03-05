@@ -120,13 +120,22 @@ def main():
     
     # Guardar resultados
     if channels_found:
-        with open('test/digital.json', 'w', encoding='utf-8') as f:
-            json.dump(channels_found, f, indent=4, ensure_ascii=False)
+        def get_config_dir():
+            xdg_config = os.environ.get("XDG_CONFIG_HOME")
+            if xdg_config:
+                return os.path.join(xdg_config, "Fina")
+            return os.path.expanduser("~/.config/Fina")
+
+        config_dir = get_config_dir()
+        output_file = os.path.join(config_dir, "channels.json")
         
-        print(f"\n✅ Guardados {len(channels_found)} canales en test/digital.json")
-        print("\n📋 Total de canales procesados:")
-        print(f"   Principales: {len([c for c in channels_found.keys() if not c.startswith('canal ')])}")
-        print(f"   Genéricos: {len([c for c in channels_found.keys() if c.startswith('canal ')])}")
+        try:
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(channels_found, f, indent=4, ensure_ascii=False)
+            print(f"\n✅ Guardados {len(channels_found)} canales en {output_file}")
+        except Exception as e:
+            print(f"❌ Error guardando json: {e}")
     else:
         print("\n❌ No se encontraron canales")
 

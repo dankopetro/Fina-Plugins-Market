@@ -137,19 +137,20 @@ def main():
     
     # Solo guardar si el escaneo terminó o no fue cancelado
     if channels_found:
-        # Priorizar Carpeta de Usuario
-        config_dir = os.path.expanduser("~/.config/Fina")
+        def get_config_dir():
+            xdg_config = os.environ.get("XDG_CONFIG_HOME")
+            if xdg_config:
+                return os.path.join(xdg_config, "Fina")
+            return os.path.expanduser("~/.config/Fina")
+
+        config_dir = get_config_dir()
         output_file = os.path.join(config_dir, "channels.json")
-        
-        # Fallback si no existe la carpeta (aunque main.py la crea)
-        if not os.path.exists(config_dir):
-            output_file = os.path.join(".", "config", "channels.json")
         
         try:
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(channels_found, f, indent=4, ensure_ascii=False)
-            print(f"✅ ÉXITO: {len(channels_found)} canales guardados.")
+            print(f"✅ ÉXITO: {len(channels_found)} canales guardados en {output_file}")
         except Exception as e:
             print(f"❌ Error guardando json: {e}")
     else:
