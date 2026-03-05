@@ -37,9 +37,15 @@ sys.path.append(PROJECT_ROOT)
 # --- CARGAR CONFIGURACIÓN ---
 DOORBELL_CONFIGURED = False
 try:
-    home = os.path.expanduser("~")
+    def get_config_dir():
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config:
+            return os.path.join(xdg_config, "Fina")
+        return os.path.expanduser("~/.config/Fina")
+
+    config_dir = get_config_dir()
     paths = [
-        os.path.join(home, ".config/Fina/settings.json"),
+        os.path.join(config_dir, "settings.json"),
         os.path.join(PROJECT_ROOT, "config/settings.json")
     ]
     for p in paths:

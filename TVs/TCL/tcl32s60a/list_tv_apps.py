@@ -4,7 +4,13 @@ import json
 import os
 
 # Define local configuration path explicitly
-SETTINGS_FILE = os.path.expanduser("~/.config/Fina/settings.json")
+config_dir = os.environ.get("XDG_CONFIG_HOME")
+if config_dir:
+    config_dir = os.path.join(config_dir, "Fina")
+else:
+    config_dir = os.path.expanduser("~/.config/Fina")
+    
+SETTINGS_FILE = os.path.join(config_dir, "settings.json")
 
 def get_target_ip():
     if "--ip" in sys.argv:

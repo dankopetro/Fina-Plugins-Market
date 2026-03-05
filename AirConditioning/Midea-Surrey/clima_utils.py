@@ -12,9 +12,15 @@ def get_ac_config():
     try:
         script_dir = os.path.dirname(os.path.abspath(__file__))
         # Intentar localizar settings.json (ruta relativa al plugin y nueva estructura)
-        home = os.path.expanduser("~")
+        def get_config_dir():
+            xdg_config = os.environ.get("XDG_CONFIG_HOME")
+            if xdg_config:
+                return os.path.join(xdg_config, "Fina")
+            return os.path.expanduser("~/.config/Fina")
+
+        config_dir = get_config_dir()
         paths = [
-            os.path.join(home, ".config/Fina/settings.json"),
+            os.path.join(config_dir, "settings.json"),
             os.path.join(script_dir, "../../config/settings.json"),
             os.path.join(script_dir, "../config/settings.json"),
             "./config/settings.json"

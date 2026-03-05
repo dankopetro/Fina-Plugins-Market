@@ -14,7 +14,12 @@ def load_channels():
     """Carga el mapeo de canales del archivo JSON (admite diccionario o lista)"""
     channels = {}
     # Priorizamos el de Telecentro para este modelo
-    config_dir = os.path.expanduser("~/.config/Fina")
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        config_dir = os.path.join(xdg_config, "Fina")
+    else:
+        config_dir = os.path.expanduser("~/.config/Fina")
+
     paths = [
         os.path.join(config_dir, "channels_telecentro.json"),
         os.path.join(config_dir, "channels.json"),

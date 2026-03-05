@@ -6,11 +6,17 @@ import os
 def get_battery():
     # Intentar localizar tuya_config.json en la nueva estructura ~/.config/Fina
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    home = os.path.expanduser("~")
-    config_path = os.path.join(home, ".config/Fina/tuya_config.json")
+    def get_config_dir():
+        xdg_config = os.environ.get("XDG_CONFIG_HOME")
+        if xdg_config:
+            return os.path.join(xdg_config, "Fina")
+        return os.path.expanduser("~/.config/Fina")
+
+    config_dir = get_config_dir()
+    config_path = os.path.join(config_dir, "tuya_config.json")
     
     if not os.path.exists(config_path):
-        # Fallback a la ruta antigua
+        # Fallback a la ruta antigua o relativa
         config_path = os.path.join(script_dir, "../../config/tuya_config.json")
         if not os.path.exists(config_path):
             config_path = "./config/tuya_config.json"
