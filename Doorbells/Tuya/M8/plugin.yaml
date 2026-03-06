@@ -1,7 +1,9 @@
 name: "Doorbell"
 version: "3.0.0"
 description: "Timbre Inteligente V3 (FFmpeg Puro)"
-main: "monitor_ergen.py"
+main: "doorbell_status.py"
+scripts:
+  monitor: "monitor_ergen.py"
 enabled: true
 priority: 50
 intents:

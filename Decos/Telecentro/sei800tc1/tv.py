@@ -246,16 +246,22 @@ class TVPlugin:
 
     def verify_scripts(self):
         """Verifica que los scripts existan en las carpetas de modelos"""
-        # Por ahora verificamos nuestro modelo principal
-        base_path = os.path.join(self.plugin_dir, "tcl_32s60a")
+        # Verificamos tanto en la raíz como en subcarpeta
         required_scripts = ["tv_on.py", "tv_off.py", "set_channel.py", "list_tv_apps.py", "tv_set_volume.py", "tv_mute.py"]
         
         for script in required_scripts:
-            path = os.path.join(base_path, script)
+             # 1. Probar en la raíz
+            path = os.path.join(self.plugin_dir, script)
             if not os.path.exists(path):
-                self.logger.warning(f"⚠️ Script faltante en tcl_32s60a: {script}")
+                # 2. Probar en subcarpeta
+                path = os.path.join(self.plugin_dir, "sei800tc1", script)
+
+            if not os.path.exists(path):
+                self.logger.warning(f"⚠️ Script faltante para Deco: {script}")
             else:
-                os.chmod(path, 0o755)
+                try:
+                    os.chmod(path, 0o755)
+                except: pass
 
     def _get_model_folder(self, tv_type: str) -> str:
         """Mapea el tipo de TV a la carpeta del controlador"""
@@ -285,8 +291,13 @@ class TVPlugin:
             elif script_name == "set_input_deco.py":
                 script_name = "set_input_deco.py" # Forzar nombre exacto
         
+        # 1. Probar en la subcarpeta del modelo
         path = os.path.join(self.plugin_dir, model_folder, script_name)
-        
+        if os.path.exists(path):
+            return path
+            
+        # 2. Probar en la raíz del plugin directamente
+        path = os.path.join(self.plugin_dir, script_name)
         if os.path.exists(path):
             return path
         
