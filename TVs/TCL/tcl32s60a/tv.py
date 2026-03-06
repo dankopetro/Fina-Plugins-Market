@@ -266,17 +266,21 @@ class TVPlugin:
             if "list_tv_apps.py" in required_scripts: required_scripts[required_scripts.index("list_tv_apps.py")] = "list_deco_apps.py"
 
         for script in required_scripts:
-            # 1. Probar en la raíz
+            # 1. Probar en la raíz del plugin (donde está tv.py)
             path = os.path.join(self.plugin_dir, script)
+            
+            # 2. Si no está en la raíz, probar en la subcarpeta del modelo
             if not os.path.exists(path):
-                # 2. Probar en subcarpeta
-                path = os.path.join(self.plugin_dir, model_folder, script)
+                # Solo si plugin_dir NO es ya la carpeta del modelo
+                if os.path.basename(self.plugin_dir) != model_folder:
+                    path = os.path.join(self.plugin_dir, model_folder, script)
                 
             if not os.path.exists(path):
                 self.logger.warning(f"⚠️ Script faltante para {model_folder}: {script}")
             else:
                 try:
                     os.chmod(path, 0o755)
+                    self.logger.debug(f"✅ Script verificado: {script}")
                 except: pass
 
     def _get_model_folder(self, tv_type: str) -> str:

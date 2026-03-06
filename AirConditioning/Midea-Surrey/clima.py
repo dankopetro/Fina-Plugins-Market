@@ -86,7 +86,7 @@ async def control_aire():
                     resp_energy = await device._send_commands_get_responses([EnergyHackCommand(0x44)])
                     if resp_energy:
                         for r in resp_energy:
-                            if r.id == 0xC1:
+                            if r.id in [0xC0, 0xC1]:
                                 d = r.payload
                                 try:
                                     # Decodificación BCD robusta
@@ -101,7 +101,7 @@ async def control_aire():
                     resp_power = await device._send_commands_get_responses([EnergyHackCommand(0x43)])
                     if resp_power:
                         for r in resp_power:
-                            if r.id == 0xC1:
+                            if r.id in [0xC0, 0xC1]:
                                 try:
                                     raw_w = r.payload[16]
                                     if raw_w > 0:

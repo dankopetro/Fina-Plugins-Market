@@ -237,6 +237,18 @@ def ensure_android_environment():
             # Volver a Home
             subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent 3", shell=True)
             
+            # --- LANZAR STREAMER (NUEVO) ---
+            print("🎥 Iniciando servidor de Video Stream...")
+            streamer_path = find_script("streamer.py")
+            if streamer_path:
+                subprocess.Popen([sys.executable, streamer_path], 
+                               stdout=subprocess.DEVNULL, 
+                               stderr=subprocess.DEVNULL,
+                               start_new_session=True)
+                print("✅ Streamer iniciado.")
+            else:
+                print("⚠️ No se encontró streamer.py en las rutas conocidas.")
+
             # ELIMINADO: No minimizamos manualmente aquí porque start_hidden_system.sh YA lo hizo con KDocker.
             print("✅ Tuya Smart lista en segundo plano.")
 
