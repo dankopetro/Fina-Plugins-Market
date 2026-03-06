@@ -36,7 +36,12 @@ class TVPlugin:
                 config_dir = os.path.expanduser("~/.config/Fina")
                 
         settings_path = os.path.join(config_dir, "settings.json")
-        fallback_settings = os.path.join(os.path.dirname(os.path.dirname(self.plugin_dir)), "config", "settings.json")
+        # Ruta Dinámica al Proyecto para Fallback
+        PROJ_ROOT = os.path.join(os.path.expanduser("~"), "Descargas/Fina-Ergen")
+        if "Descargas/Fina-Ergen" in self.plugin_dir:
+            if "/plugins" in self.plugin_dir: PROJ_ROOT = self.plugin_dir.split("/plugins")[0]
+            elif "/.local_lab" in self.plugin_dir: PROJ_ROOT = self.plugin_dir.split("/.local_lab")[0]
+        fallback_settings = os.path.join(PROJ_ROOT, "config", "settings.json")
         
         paths_to_check = [settings_path, fallback_settings]
         self.logger.info(f"🔎 TVPlugin buscando settings en: {paths_to_check}")
@@ -248,18 +253,27 @@ class TVPlugin:
 
     def verify_scripts(self):
         """Verifica que los scripts existan en las carpetas de modelos"""
-        # Verificamos tanto en la raíz del plugin como en la subcarpeta 'tcl_32s60a'
+        # Verificamos tanto en la raíz del plugin como en la subcarpeta del modelo
+        tv_type = self.settings.get("tvs", [{}])[0].get("type", "tcl_32s60a")
+        model_folder = self._get_model_folder(tv_type)
+        
         required_scripts = ["tv_on.py", "tv_off.py", "set_channel.py", "list_tv_apps.py", "tv_set_volume.py", "tv_mute.py"]
         
+        # Ajuste de nombres para Deco
+        if model_folder == "sei800tc1":
+            required_scripts = [s.replace("tv_", "deco_") if s.startswith("tv_") else s for s in required_scripts]
+            if "set_channel.py" in required_scripts: required_scripts[required_scripts.index("set_channel.py")] = "deco_set_channel.py"
+            if "list_tv_apps.py" in required_scripts: required_scripts[required_scripts.index("list_tv_apps.py")] = "list_deco_apps.py"
+
         for script in required_scripts:
             # 1. Probar en la raíz
             path = os.path.join(self.plugin_dir, script)
             if not os.path.exists(path):
                 # 2. Probar en subcarpeta
-                path = os.path.join(self.plugin_dir, "tcl_32s60a", script)
+                path = os.path.join(self.plugin_dir, model_folder, script)
                 
             if not os.path.exists(path):
-                self.logger.warning(f"⚠️ Script faltante para TCL: {script}")
+                self.logger.warning(f"⚠️ Script faltante para {model_folder}: {script}")
             else:
                 try:
                     os.chmod(path, 0o755)

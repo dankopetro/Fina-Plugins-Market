@@ -6,7 +6,14 @@ import os
 import json
 
 # Ajustar ruta al proyecto
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+USER_HOME = os.path.expanduser("~")
+PROJECT_ROOT = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
+if "Descargas/Fina-Ergen/plugins" in script_dir:
+    PROJECT_ROOT = script_dir.split("/plugins")[0]
+elif "Descargas/Fina-Ergen/.local_lab" in script_dir:
+    PROJECT_ROOT = script_dir.split("/.local_lab")[0]
+sys.path.append(PROJECT_ROOT)
 
 def load_ips_from_settings():
     """Carga IPs desde la configuración"""

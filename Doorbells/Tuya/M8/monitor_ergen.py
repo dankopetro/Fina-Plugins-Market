@@ -29,9 +29,26 @@ def wait_for_adb(timeout=60):
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# RUTA AL PROYECTO (Dinámica)
+# RUTA AL PROYECTO (Dinámica y Resiliente)
 script_dir = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.join(script_dir, "../..") 
+# Fallback hardcodeado para la máquina del usuario
+USER_HOME = os.path.expanduser("~")
+REPO_FALLBACK = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
+
+def find_script(script_rel_path):
+    """Busca un script en varias ubicaciones posibles"""
+    posibles = [
+        os.path.join(script_dir, "../../..", script_rel_path), # Si esta en la repo/plugins
+        os.path.join(REPO_FALLBACK, script_rel_path),         # Repo del usuario
+        os.path.join("/usr/lib/fina-ergen", script_rel_path),   # Instalado
+        os.path.join(os.getcwd(), script_rel_path)            # CWD
+    ]
+    for p in posibles:
+        if os.path.exists(p):
+            return p
+    return None
+
+PROJECT_ROOT = REPO_FALLBACK # Default
 sys.path.append(PROJECT_ROOT)
 
 # --- CARGAR CONFIGURACIÓN ---
@@ -184,13 +201,14 @@ def ensure_android_environment():
             env["DISPLAY"] = ":0"
             env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
             
-            # Ejecutar el script de arranque en segundo plano (LOCAL en Ergen)
-            script_path = os.path.join(PROJECT_ROOT, "scripts", "start_hidden_system.sh")
+            # Ejecutar el script de arranque en segundo plano
+            script_path = find_script("scripts/start_hidden_system.sh")
             
-            if not os.path.exists(script_path):
-                print(f"ERROR: No encuentro {script_path}")
+            if not script_path:
+                print(f"ERROR: No encuentro scripts/start_hidden_system.sh en ninguna ruta conocida.")
                 return
 
+            print(f"📂 Usando script: {script_path}")
             subprocess.Popen(["bash", script_path], 
                            env=env, # Inyectar display
                            stdout=subprocess.DEVNULL, 

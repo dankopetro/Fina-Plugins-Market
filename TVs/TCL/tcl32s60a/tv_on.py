@@ -6,8 +6,18 @@ import os
 import json
 import argparse
 
-# Ajustar ruta al proyecto
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# RUTA AL PROYECTO (Dinámica y Resiliente)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Fallback para la máquina del usuario
+USER_HOME = os.path.expanduser("~")
+PROJECT_ROOT = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
+# Intentar detectar si estamos dentro de la repo
+if "Descargas/Fina-Ergen/plugins" in script_dir:
+    PROJECT_ROOT = script_dir.split("/plugins")[0]
+elif "Descargas/Fina-Ergen/.local_lab" in script_dir:
+    PROJECT_ROOT = script_dir.split("/.local_lab")[0]
+
+sys.path.append(PROJECT_ROOT)
 
 def wake_on_lan(macaddress, ip_hint=None):
     """Envia un paquete Magic Packet para despertar la TV"""

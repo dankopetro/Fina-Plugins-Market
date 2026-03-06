@@ -8,7 +8,16 @@ from remote_helper import send_command
 
 # Ajustar PROJECT_ROOT
 # ./plugins/tv/sei800tc1/set_channel.py
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
+# RUTA AL PROYECTO (Dinámica y Resiliente)
+script_dir = os.path.dirname(os.path.abspath(__file__))
+USER_HOME = os.path.expanduser("~")
+PROJECT_ROOT = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
+if "Descargas/Fina-Ergen/plugins" in script_dir:
+    PROJECT_ROOT = script_dir.split("/plugins")[0]
+elif "Descargas/Fina-Ergen/.local_lab" in script_dir:
+    PROJECT_ROOT = script_dir.split("/.local_lab")[0]
+
+sys.path.append(PROJECT_ROOT)
 
 def load_channels():
     """Carga el mapeo de canales del archivo JSON (admite diccionario o lista)"""
