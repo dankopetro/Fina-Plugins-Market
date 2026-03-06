@@ -7,7 +7,7 @@ import os
 import json
 
 # Adjust project root if needed
-# ./plugins/tv/tcl_32s60a/set_channel.py
+# ./plugins/tv/tcl32s60a/set_channel.py
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../.."))
 
 # Mapping of digits to ADB Key Events

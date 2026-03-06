@@ -82,23 +82,34 @@ async def control_aire():
             total_kwh = 0
             try:
                 # 1. Energía Acumulada (Sub-cmd 0x44)
-                resp_energy = await device._send_commands_get_responses([EnergyHackCommand(0x44)])
-                if resp_energy:
-                    for r in resp_energy:
-                        if r.id == 0xC1:
-                            d = r.payload
-                            total_kwh = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
-                
+                for _ in range(2):
+                    resp_energy = await device._send_commands_get_responses([EnergyHackCommand(0x44)])
+                    if resp_energy:
+                        for r in resp_energy:
+                            if r.id == 0xC1:
+                                d = r.payload
+                                try:
+                                    # Decodificación BCD robusta
+                                    val = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
+                                    if val >= 0:
+                                        total_kwh = val
+                                        break
+                                except: continue
+
                 # 2. Potencia Instantánea (Sub-cmd 0x43)
-                resp_power = await device._send_commands_get_responses([EnergyHackCommand(0x43)])
-                if resp_power:
-                    for r in resp_power:
-                        if r.id == 0xC1:
-                            raw_w = r.payload[16]
-                            if raw_w > 0: # Si recibimos varios, priorizamos el que tiene valor
-                                watts = raw_w * 10
+                for _ in range(2):
+                    resp_power = await device._send_commands_get_responses([EnergyHackCommand(0x43)])
+                    if resp_power:
+                        for r in resp_power:
+                            if r.id == 0xC1:
+                                try:
+                                    raw_w = r.payload[16]
+                                    if raw_w > 0:
+                                        watts = raw_w * 10
+                                        break
+                                except: continue
             except Exception as energy_err:
-                print(f"Error obteniendo energía: {energy_err}")
+                print(f"Error obteniendo energía (Standby?): {energy_err}")
             # ------------------------------
 
             msg = f"El aire está {estado} en modo {modo_actual} a {device.target_temperature}°C. Consumo: {watts}W (Total: {total_kwh:.2f}kWh). Int: {device.indoor_temperature}°C | Ext: {device.outdoor_temperature or '--'}°C."

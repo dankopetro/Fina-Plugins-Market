@@ -252,7 +252,7 @@ class TVPlugin:
     def verify_scripts(self):
         """Verifica que los scripts existan en las carpetas de modelos"""
         # Verificamos tanto en la raíz del plugin como en la subcarpeta del modelo
-        tv_type = self.settings.get("tvs", [{}])[0].get("type", "tcl_32s60a")
+        tv_type = self.settings.get("tvs", [{}])[0].get("type", "tcl32s60a")
         model_folder = self._get_model_folder(tv_type)
         
         required_scripts = ["tv_on.py", "tv_off.py", "set_channel.py", "list_tv_apps.py", "tv_set_volume.py", "tv_mute.py"]
@@ -281,17 +281,17 @@ class TVPlugin:
         """Mapea el tipo de TV a la carpeta del controlador"""
         # Normalizamos nombres
         tv_type_low = tv_type.lower()
-        if tv_type_low in ["tcl", "tcl_32s60a", "androidtv"]:
-            return "tcl_32s60a"
+        if tv_type_low in ["tcl", "tcl32s60a", "tcl_32s60a", "androidtv"]:
+            return "tcl32s60a"
         elif tv_type_low in ["sei800tc1", "deco", "telecentro"]:
             return "sei800tc1"
         elif tv_type_low in ["samsung", "tizen"]:
             return "samsung_tizen"
-        return "tcl_32s60a" # Fallback
+        return "tcl32s60a" # Fallback
 
     def _get_script_path(self, target_tv: dict, script_name: str) -> Optional[str]:
         """Resuelve la ruta del script según el modelo de la TV"""
-        tv_type = target_tv.get("type", "tcl_32s60a")
+        tv_type = target_tv.get("type", "tcl32s60a")
         model_folder = self._get_model_folder(tv_type)
         
         # Ajuste para Deco (usamos prefijo deco_ en lugar de tv_)
