@@ -101,7 +101,7 @@ async def control_aire():
                 print(f"Error obteniendo energía: {energy_err}")
             # ------------------------------
 
-            msg = f"El aire está {estado} en modo {modo_actual} a {device.target_temperature}°C. Consumo: {watts}W. Int: {device.indoor_temperature}°C | Ext: {device.outdoor_temperature or '--'}°C."
+            msg = f"El aire está {estado} en modo {modo_actual} a {device.target_temperature}°C. Consumo: {watts}W (Total: {total_kwh:.2f}kWh). Int: {device.indoor_temperature}°C | Ext: {device.outdoor_temperature or '--'}°C."
             if device.indoor_humidity:
                 msg += f" Humedad: {device.indoor_humidity}%"
             
