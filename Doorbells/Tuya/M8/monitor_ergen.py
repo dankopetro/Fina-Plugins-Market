@@ -286,6 +286,20 @@ def monitor_loop():
     
     while True:
         try:
+            # Auto-Heal Streamer: Asegurar que el servidor de video esté corriendo
+            streamer_path = find_script("streamer.py")
+            if streamer_path:
+                # Verificar si el puerto 8555 está escuchando
+                import socket
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    s.settimeout(0.1)
+                    if s.connect_ex(('127.0.0.1', 8555)) != 0:
+                        print("🎬 RE-INICIANDO STREAMER (Puerto 8555 no responde)...")
+                        subprocess.Popen([sys.executable, streamer_path], 
+                                       stdout=subprocess.DEVNULL, 
+                                       stderr=subprocess.DEVNULL,
+                                       start_new_session=True)
+
             online = is_online(DOORBELL_IP)
             
             if online:

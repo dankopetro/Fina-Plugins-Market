@@ -30,7 +30,7 @@ def start_watchdog():
     print("⏲️ [Watchdog] Vigilante de inactividad iniciado (timeout: 180s)", flush=True)
     while True:
         waited = time.time() - last_access
-        if waited > 180: # 3 minutos sin clientes
+        if waited > 1800: # 30 minutos sin clientes
             print(f"💤 [Streamer] Inactivo por {int(waited)}s. Auto-destrucción para liberar RAM.", flush=True)
             # Intentar matar procesos hijos propios antes de morir
             os.system("pkill -P " + str(os.getpid()))

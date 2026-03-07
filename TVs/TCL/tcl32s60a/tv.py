@@ -253,14 +253,26 @@ class TVPlugin:
 
     def verify_scripts(self):
         """Verifica que los scripts existan en las carpetas de modelos"""
-        # Verificamos tanto en la raíz del plugin como en la subcarpeta del modelo
-        tv_type = self.settings.get("tvs", [{}])[0].get("type", "tcl32s60a")
-        model_folder = self._get_model_folder(tv_type)
+        # Identificar qué modelo representa este plugin basándonos en su carpeta
+        my_model = os.path.basename(self.plugin_dir)
+        
+        # Buscar en la configuración de TVs si existe este modelo
+        tvs = self.settings.get("tvs", [])
+        if isinstance(tvs, dict): tvs = list(tvs.values())
+        
+        # Verificamos si este plugin (este modelo) está siendo usado por alguna TV
+        is_used = any(self._get_model_folder(t.get("type", "")) == my_model for t in tvs)
+        
+        if not is_used:
+            self.logger.debug(f"🔌 Plugin {my_model} no está en uso según settings.json. Saltando verificación de scripts.")
+            return
+
+        self.logger.info(f"🔎 Verificando scripts para el modelo: {my_model}")
         
         required_scripts = ["tv_on.py", "tv_off.py", "set_channel.py", "list_tv_apps.py", "tv_set_volume.py", "tv_mute.py"]
         
         # Ajuste de nombres para Deco
-        if model_folder == "sei800tc1":
+        if my_model == "sei800tc1":
             required_scripts = [s.replace("tv_", "deco_") if s.startswith("tv_") else s for s in required_scripts]
             if "set_channel.py" in required_scripts: required_scripts[required_scripts.index("set_channel.py")] = "deco_set_channel.py"
             if "list_tv_apps.py" in required_scripts: required_scripts[required_scripts.index("list_tv_apps.py")] = "list_deco_apps.py"
@@ -272,8 +284,8 @@ class TVPlugin:
             # 2. Si no está en la raíz, probar en la subcarpeta del modelo
             if not os.path.exists(path):
                 # Solo si plugin_dir NO es ya la carpeta del modelo
-                if os.path.basename(self.plugin_dir) != model_folder:
-                    path = os.path.join(self.plugin_dir, model_folder, script)
+                if os.path.basename(self.plugin_dir) != my_model:
+                    path = os.path.join(self.plugin_dir, my_model, script)
                 
             if not os.path.exists(path):
                 self.logger.warning(f"⚠️ Script faltante para {model_folder}: {script}")
