@@ -38,6 +38,7 @@ REPO_FALLBACK = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
 def find_script(script_rel_path):
     """Busca un script en varias ubicaciones posibles"""
     posibles = [
+        os.path.join(script_dir, script_rel_path),             # Directorio local del plugin (Market Fix)
         os.path.join(script_dir, "../../..", script_rel_path), # Si esta en la repo/plugins
         os.path.join(REPO_FALLBACK, script_rel_path),         # Repo del usuario
         os.path.join("/usr/lib/fina-ergen", script_rel_path),   # Instalado

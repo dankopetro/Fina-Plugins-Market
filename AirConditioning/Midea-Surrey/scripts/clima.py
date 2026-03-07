@@ -58,7 +58,14 @@ def send_event(event_name, payload):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         # El cerebro Phoenix escucha en el puerto 5555
-        message = json.dumps({"type": "event", "name": event_name, "payload": payload, "module": "clima"})
+        # Añadimos 'event' para compatibilidad con el servidor UDP del plugin_manager
+        message = json.dumps({
+            "type": "event", 
+            "event": event_name, 
+            "name": event_name, 
+            "payload": payload, 
+            "module": "clima"
+        })
         sock.sendto(message.encode(), ("127.0.0.1", 5555))
         sock.close()
     except Exception as e:
@@ -142,9 +149,12 @@ async def control_aire():
                     if resp_energy:
                         for r in resp_energy:
                             if r.id in [0xC0, 0xC1] and r.payload[3] == 0x44:
-                                d = r.payload
-                                # El acumulado viene en kWh directamente
-                                total_kwh = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
+                                # El acumulado viene en kWh directamente (BCD)
+                                # d[4]=1000s, d[5]=100s/10s, d[6]=1s, d[7]=0.1s/0.01s (Depende del modelo)
+                                # Ajustamos para ser más inclusivo con el formato estándar Midea
+                                val_high = decode_bcd(d[4]) * 100 + decode_bcd(d[5])
+                                val_low = decode_bcd(d[6]) + (decode_bcd(d[7]) / 100.0)
+                                total_kwh = val_high + val_low
                                 found_energy = True
                                 break
                     if found_energy: break

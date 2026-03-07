@@ -46,18 +46,21 @@ def start_background_capture():
         WAYDROID_ADB = find_waydroid_ip()
         
         # 2. Comando Continuo
+        # Limpieza previa de ADB para evitar zombies
+        subprocess.run(f"adb -s {WAYDROID_ADB} shell pkill screenrecord", shell=True, stderr=subprocess.DEVNULL)
+        
         cmd_stream = [
             "adb", "-s", WAYDROID_ADB, "exec-out", "screenrecord",
-            "--output-format=h264", "--size", "320x576", "--bit-rate", "500000",
-            "--time-limit", "180", "-"
+            "--output-format=h264", "--size", "320x576", "--bit-rate", "800000",
+            "--time-limit", "3600", "-" # Aumentar límite de tiempo
         ]
         
         cmd_ffmpeg = [
             "ffmpeg", "-hide_banner", "-loglevel", "error",
-            "-f", "h264", "-r", "10", "-i", "pipe:0", # Input: Forzar 10 FPS de lectura 
+            "-avoid_negative_ts", "make_zero", "-flags", "low_delay", 
+            "-f", "h264", "-i", "pipe:0", 
             "-an", "-c:v", "mjpeg", "-f", "mpjpeg", 
-            "-r", "10", # Output: Forzar 10 FPS de salida
-            "-boundary_tag", "frame", "-q:v", "20", "pipe:1" # Calidad q:v 20 (más ligera)
+            "-r", "12", "-q:v", "15", "-boundary_tag", "frame", "pipe:1"
         ]
 
         try:
