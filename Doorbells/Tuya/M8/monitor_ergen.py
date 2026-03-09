@@ -180,7 +180,14 @@ def ensure_infrastructure() -> bool:
             # Lanzar Streamer
             streamer_p: Optional[str] = find_script("streamer.py")
             if streamer_p:
-                subprocess.Popen([sys.executable, streamer_p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+                proj_root = find_project_root()
+                subprocess.Popen(
+                    [sys.executable, streamer_p], 
+                    stdout=subprocess.DEVNULL, 
+                    stderr=subprocess.DEVNULL, 
+                    start_new_session=True,
+                    cwd=proj_root
+                )
         return True
     except Exception as e:
         logger.error(f"⚠️ Error infraestructura: {e}")
