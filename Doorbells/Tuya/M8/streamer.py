@@ -165,22 +165,26 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
 
 def main() -> None:
     """Arranque del servidor de video"""
-    # Limpiar puertos previos
-    subprocess.run(["fuser", "-k", f"{HTTP_PORT}/tcp"], capture_output=True) # type: ignore
+    # Limpiar puertos previos de forma segura
+    try:
+        subprocess.run(["fuser", "-k", f"{HTTP_PORT}/tcp"], capture_output=True, check=False)
+    except Exception:
+        # Si fuser no existe o falla, intentamos seguir
+        pass
     
     # Hilos de soporte
-    threading.Thread(target=capture_worker, daemon=True).start()
-    threading.Thread(target=watchdog_routine, daemon=True).start()
-    
-    print(f"📡 Video Streamer Ergen activo en puerto {HTTP_PORT}")
-    with ThreadedServer(('', HTTP_PORT), StreamingHandler) as server:
-        try:
+    try:
+        threading.Thread(target=capture_worker, daemon=True).start()
+        threading.Thread(target=watchdog_routine, daemon=True).start()
+        
+        print(f"📡 Video Streamer Ergen activo en puerto {HTTP_PORT}", flush=True)
+        with ThreadedServer(('', HTTP_PORT), StreamingHandler) as server:
             server.serve_forever()
-        except KeyboardInterrupt:
-            print("⏹ Deteniendo servidor.")
-        except Exception as e:
-            print(f"💥 Error fatal: {e}")
-            sys.exit(1)
+    except KeyboardInterrupt:
+        print("\n⏹ Deteniendo servidor.", flush=True)
+    except Exception as e:
+        print(f"💥 Error fatal en Streamer: {e}", flush=True)
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

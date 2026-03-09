@@ -98,23 +98,32 @@ def find_project_root() -> Optional[str]:
     return None
 
 async def discover_ac_id(ip: str) -> int:
-    """Busca el ID de un dispositivo Midea/Surrey de forma dinámica"""
+    """Busca el ID de un dispositivo Midea/Surrey de forma dinámica y robusta"""
     from msmart.discover import Discover # type: ignore
-    logger.info(f"🔍 Buscando ID para el aire en {ip}...")
+    logger.info(f"🔍 Intentando autodescubrimiento en {ip}...")
+    
+    # 1. Escaneo dirigido (Más fiable, evita bugs de broadcast en algunas redes)
     try:
-        # 1. Intento por broadcast (rápido)
+        devices = await Discover.discover(target=ip)
+        for d in devices:
+            if getattr(d, 'ip', None) == ip or getattr(d, 'host', None) == ip:
+                obj_id = getattr(d, 'id', getattr(d, 'device_id', 0))
+                logger.info(f"✅ ID encontrado (Dirigido): {obj_id}")
+                return int(obj_id)
+    except Exception as e:
+        logger.debug(f"Aviso: Fallo en escaneo dirigido: {e}")
+
+    # 2. Escaneo Broadcast (Backup si la IP cambió o no responde directo)
+    try:
         devices = await Discover.discover()
         for d in devices:
-            if d.ip == ip:
-                logger.info(f"✅ ID encontrado vía broadcast: {d.device_id}")
-                return int(d.device_id)
-        
-        # 2. Si no aparece, el msmart-ng suele requerir el ID para hablar.
-        # No hay un método fácil de "info" directa sin ID en v3, 
-        # pero podemos intentar un descubrimiento dirigido si la lib lo soporta
-        # o simplemente reportar que se necesita el ID.
+            if getattr(d, 'ip', None) == ip or getattr(d, 'host', None) == ip:
+                obj_id = getattr(d, 'id', getattr(d, 'device_id', 0))
+                logger.info(f"✅ ID encontrado (Broadcast): {obj_id}")
+                return int(obj_id)
     except Exception as e:
-        logger.warning(f"Error en autodescubrimiento: {e}")
+        logger.warning(f"Error en autodescubrimiento general: {e}")
+    
     return 0
 
 async def load_ac_config() -> Tuple[str, int]:
@@ -139,7 +148,11 @@ async def load_ac_config() -> Tuple[str, int]:
                     ac_data: Dict[str, Any] = data.get("ac", {})
                     
                     ip = str(apis.get("AC_IP", ac_data.get("ip", "")))
-                    device_id = int(apis.get("AC_ID", ac_data.get("device_id", 0)))
+                    raw_id = apis.get("AC_ID", ac_data.get("device_id", 0))
+                    try:
+                        device_id = int(raw_id) if raw_id else 0
+                    except ValueError:
+                        device_id = 0
                     
                     if ip:
                         # Si tenemos IP pero no ID, intentamos descubrirlo una vez
@@ -161,7 +174,7 @@ def send_udp_event(event_name: str, payload: Any) -> None:
                 "payload": payload, 
                 "module": "clima"
             })
-            sock.sendto(message.encode(), ("127.0.0.1", 5555))
+            sock.sendto(message.encode(), ("127.0.0.1", 13333))
     except Exception as e:
         logger.error(f"Error enviando evento UDP: {e}")
 
@@ -243,29 +256,22 @@ async def control_aire() -> None:
             total_kwh_val: float = 0.0
             
             try:
-                # 1. Intentar obtener TODO (Probamos 0x12 para energía y 0x44 para watts)
-                for sub_cmd in [0x12, 0x44, 0x43]:
-                    resps = await device._send_commands_get_responses([EnergyHackCommand(sub_cmd)]) # type: ignore
+                # 1. ENERGÍA: Búsqueda dinámica en buffers de Midea/Surrey
+                for hack in [0x12, 0x44, 0x43]:
+                    resps = await device._send_commands_get_responses([EnergyHackCommand(hack)]) # type: ignore
                     if resps:
                         for r in resps:
-                            if not hasattr(r, 'payload') or len(r.payload) < 8:
-                                continue
-                            
-                            p: bytearray = r.payload
-                            # print(f"DEBUG: Cmd {hex(sub_cmd)} -> Resp Payload: {p.hex()}")
-                            
-                            # Si la trama es 0x44 (Contiene los kWh acumulados)
-                            if p[3] == 0x44:
-                                total_kwh_val = (10000 * decode_bcd(p[4]) + 100 * decode_bcd(p[5]) + 1 * decode_bcd(p[6]) + 0.01 * decode_bcd(p[7]))
-                                # print(f"DEBUG: kWh Detectado: {total_kwh_val}")
-                            
-                            # Si la trama es 0x43 (Contiene los Watts de consumo)
-                            elif p[3] == 0x43 and len(p) > 16:
-                                raw_w = int(p[16])
-                                watts_val = float(raw_w * 10)
-                                # print(f"DEBUG: Watts Detectados: {watts_val}")
-            except Exception as e:
-                logger.debug(f"Error en EnergyHack Pro: {e}")
+                            if getattr(r, 'id', None) in [0xC0, 0xC1] and hasattr(r, 'payload'):
+                                d: bytearray = r.payload
+                                if len(d) >= 8:
+                                    if d[3] == 0x44:
+                                        total_kwh_val = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
+                                    elif d[3] == 0x43 and len(d) > 16:
+                                        raw_w = int(d[16])
+                                        if raw_w > 0:
+                                            watts_val = float(raw_w * 10)
+            except Exception as energy_err:
+                logger.debug(f"Error obteniendo energía: {energy_err}")
 
             # --- CÁLCULO DE CONSUMO PERSONALIZADO Ergen ---
             calc_tot, calc_month = process_energy_stats(total_kwh_val)

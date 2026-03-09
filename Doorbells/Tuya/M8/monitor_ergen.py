@@ -145,8 +145,8 @@ def speak_local(text: str) -> None:
 def ensure_infrastructure() -> bool:
     """Asegura que Waydroid y Weston estén operativos"""
     try:
-        check = subprocess.run(["pgrep", "-f", "waydroid session"], capture_output=True) # type: ignore
-        if check.returncode != 0:
+        check = subprocess.run(["waydroid", "status"], capture_output=True, text=True) # type: ignore
+        if "RUNNING" not in check.stdout:
             logger.info("🚀 Iniciando sistema Android oculto...")
             script_path: Optional[str] = find_script("scripts/start_hidden_system.sh")
             if not script_path:
@@ -354,6 +354,19 @@ def monitor_loop() -> None:
             time.sleep(5)
 
 if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--trigger":
+        logger.info("⚡ [TRIGGER] Activación manual solicitada desde la UI.")
+        ensure_infrastructure()
+        # Notificar a la UI que estamos conectando
+        api_notify("state", {"process": "Iniciando Stream Manual..."})
+        # El streamer se iniciará automáticamente en monitor_loop si no está corriendo,
+        # o podemos lanzarlo aquí para ganar velocidad.
+        str_path = find_script("streamer.py")
+        if str_path:
+            subprocess.Popen([sys.executable, str_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        sys.exit(0)
+
     try:
         monitor_loop()
     except KeyboardInterrupt:
