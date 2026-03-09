@@ -155,7 +155,15 @@ def ensure_infrastructure() -> bool:
 
             env = os.environ.copy()
             env["DISPLAY"] = ":0"
-            subprocess.Popen(["bash", script_path], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+            proj_root = find_project_root()
+            subprocess.Popen(
+                ["bash", script_path], 
+                env=env, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL, 
+                start_new_session=True,
+                cwd=proj_root
+            )
             
             if not wait_for_adb(WAYDROID_ADB_DEFAULT):
                 logger.error("❌ Error: Waydroid no respondió.")
