@@ -54,3 +54,12 @@ intents:
       - "desactivar turbo"
     response: "Ajustando modo turbo."
     action: "clima.py --turbo {state} --silent"
+
+  - name: "aire_energia"
+    patterns:
+      - "cuanto lleva gastado de electricidad"
+      - "gasto del aire"
+      - "consumo del aire"
+      - "cuanta luz gasto el aire"
+      - "cuanto lleva gastado el aire"
+    action: "clima.py --status"

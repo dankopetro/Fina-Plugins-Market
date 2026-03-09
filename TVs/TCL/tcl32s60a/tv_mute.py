@@ -1,25 +1,38 @@
 import subprocess
+import argparse
 import sys
+from typing import Optional, List, Any
 
-def mute_tv():
-    ip = "192.168.0.11"
-    if "--ip" in sys.argv:
-        try:
-            ip = sys.argv[sys.argv.index("--ip") + 1]
-        except IndexError:
-            pass
-            
-    print(f"Connecting to {ip}...")
+def toggle_mute(ip: str) -> None:
+    """Alterna el estado de silencio (mute) en la TV TCL vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
+    print(f"🔇 Alternando silencio en {target}...")
+    
     try:
-        subprocess.run(["adb", "connect", ip], capture_output=True, timeout=5)
-        
-        print(f"Muting {ip}...")
-        # KEYCODE_MUTE = 164
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", "164"], capture_output=True, timeout=5)
+        # 1. Asegurar conexión rápida
+        subprocess.run(["adb", "connect", target], capture_output=True, timeout=3) # type: ignore
+        # 2. Enviar KEYCODE_VOLUME_MUTE (164)
+        adb_cmd: List[str] = ["adb", "-s", target, "shell", "input", "keyevent", "164"]
+        subprocess.run(adb_cmd, capture_output=True, timeout=3) # type: ignore
+        print("✓ Comando enviado.")
     except subprocess.TimeoutExpired:
-        print(f"⌛ Timeout: La TV en {ip} no responde.")
+        print(f"⌛ Timeout: La TV en {target} no responde.")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error controlando silencio: {e}")
+
+def main() -> None:
+    """Función principal"""
+    parser = argparse.ArgumentParser(description="Alternar silencio en TV TCL vía ADB")
+    parser.add_argument("--ip", required=True, help="IP de la TV")
+    args = parser.parse_args()
+    
+    toggle_mute(args.ip)
 
 if __name__ == "__main__":
-    mute_tv()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
+        sys.exit(1)

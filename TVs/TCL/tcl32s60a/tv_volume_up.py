@@ -1,23 +1,41 @@
 import subprocess
 import os
 import sys
+import argparse
+from typing import Optional, List, Any
 
-def send_key(key):
-    ip = None
-    if "--ip" in sys.argv:
-        ip = sys.argv[sys.argv.index("--ip") + 1]
-    
-    if not ip:
-        print("Error: IP no especificada (--ip)")
-        sys.exit(1)
+def send_key(ip: str, key: str) -> None:
+    """Envía un keyevent ADB a la TV TCL"""
+    target_ip: str = ip
+    if ":" not in target_ip:
+        target_ip = f"{target_ip}:5555"
+        
+    print(f"🔊 Subiendo volumen en {target_ip}...")
     
     try:
-        subprocess.run(["adb", "connect", ip], capture_output=True, timeout=5)
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", key], capture_output=True, timeout=5)
+        # 1. Asegurar conexión rápida
+        subprocess.run(["adb", "connect", target_ip], capture_output=True, timeout=2) # type: ignore
+        # 2. Enviar evento de volumen
+        adb_cmd: List[str] = ["adb", "-s", target_ip, "shell", "input", "keyevent", key]
+        subprocess.run(adb_cmd, capture_output=True, timeout=3) # type: ignore
+        print("✓ Comando enviado.")
     except subprocess.TimeoutExpired:
-        print(f"⌛ Timeout: La TV en {ip} no responde.")
+        print(f"⌛ Timeout: La TV en {target_ip} no responde.")
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error controlando volumen: {e}")
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Subir volumen TV TCL vía ADB")
+    parser.add_argument("--ip", required=True, help="IP de la TV")
+    args = parser.parse_args()
+
+    send_key(args.ip, "KEYCODE_VOLUME_UP")
 
 if __name__ == "__main__":
-    send_key("KEYCODE_VOLUME_UP")
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
+        sys.exit(1)

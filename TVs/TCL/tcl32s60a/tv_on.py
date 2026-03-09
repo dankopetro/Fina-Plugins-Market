@@ -5,182 +5,141 @@ import socket
 import os
 import json
 import argparse
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
-# RUTA AL PROYECTO (Dinámica y Resiliente)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-# Fallback para la máquina del usuario
-USER_HOME = os.path.expanduser("~")
-PROJECT_ROOT = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
-# Intentar detectar si estamos dentro de la repo
-if "Descargas/Fina-Ergen/plugins" in script_dir:
-    PROJECT_ROOT = script_dir.split("/plugins")[0]
-elif "Descargas/Fina-Ergen/.local_lab" in script_dir:
-    PROJECT_ROOT = script_dir.split("/.local_lab")[0]
+def get_config_dir() -> str:
+    """Obtiene el directorio de configuración de Fina siguiendo estándares XDG"""
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return str(xdg_config)
+    return str(Path.home() / ".config" / "Fina")
 
-sys.path.append(PROJECT_ROOT)
+def find_project_root() -> Optional[str]:
+    """Busca la raíz del proyecto basándose en package.json"""
+    curr = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (curr / "package.json").exists() or (curr / "src" / "App.vue").exists():
+            return str(curr)
+        curr = curr.parent
+    return None
 
-def wake_on_lan(macaddress, ip_hint=None):
-    """Envia un paquete Magic Packet para despertar la TV"""
-    if not macaddress:
-        return False
-    
-    # Normalizar MAC
-    if len(macaddress) == 12:
-        pass
-    elif len(macaddress) == 12 + 5:
-        sep = macaddress[2]
-        macaddress = macaddress.replace(sep, '')
-    else:
-        return False
-
-    # Crear el magic packet
-    data = b'f' * 12 + (bytes.fromhex(macaddress) * 16)
-    
-    # Enviar por broadcast
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    
+def wake_on_lan(mac_address: str, ip_hint: Optional[str] = None) -> bool:
+    """Envía un Magic Packet para despertar la TV vía WoL"""
     try:
-        # Enviar a broadcast general y al hint si existe
-        sock.sendto(data, ('255.255.255.255', 9))
-        if ip_hint:
-            sock.sendto(data, (ip_hint, 9))
+        # Limpiar MAC
+        mac: str = mac_address.replace(":", "").replace("-", "").strip()
+        if len(mac) != 12:
+            return False
+            
+        data: bytes = b'f' * 12 + (bytes.fromhex(mac) * 16)
+        
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            # Enviar a broadcast general
+            sock.sendto(data, ("255.255.255.255", 9))
+            if ip_hint:
+                sock.sendto(data, (ip_hint, 9))
         return True
     except Exception as e:
-        print(f"Error enviando WoL: {e}")
-        return False
-    finally:
-        sock.close()
-
-def check_device_connection(ip):
-    """Verifica si el dispositivo está conectado via ADB"""
-    try:
-        result = subprocess.run(
-            ['adb', 'devices'],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        for line in result.stdout.split('\n'):
-            if ip in line and 'device' in line and 'offline' not in line:
-                return True
-        return False
-    except:
+        print(f"⚠️ Error enviando WoL: {e}")
         return False
 
-def send_power_and_exit(ip):
-    """Asegura que la TV esté encendida y termina"""
-    print(f"⚡ Enviando comando de encendido a {ip}...")
+def check_adb_online(ip: str) -> bool:
+    """Verifica si el dispositivo está en línea vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
     try:
-        # KEYCODE_WAKEUP (224) - Despierta el dispositivo si está en sleep
-        # NO enviamos KEYCODE_POWER (26) porque es toggle y si ya despertó, la apaga.
-        # WAKEUP debería ser suficiente para la mayoría de Android TVs modernos.
-        subprocess.run(['adb', '-s', f'{ip}:5555', 'shell', 'input', 'keyevent', '224'], timeout=3)
-        print("✅ Comandos enviados. Cerrando.")
-        sys.exit(0)
+        res = subprocess.run(["adb", "-s", target, "shell", "echo", "1"], capture_output=True, timeout=2) # type: ignore
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def send_wakeup(ip: str) -> None:
+    """Envía el comando de despertar (WAKEUP) vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
+    print(f"⚡ Despertando TV en {target}...")
+    try:
+        # KEYCODE_WAKEUP = 224
+        subprocess.run(["adb", "-s", target, "shell", "input", "keyevent", "224"], capture_output=True, timeout=3) # type: ignore
+        print("✅ Comando WAKEUP enviado.")
     except Exception as e:
-        print(f"Error enviando comandos: {e}")
+        print(f"❌ Error enviando WAKEUP: {e}")
 
-def load_targets_from_settings():
-    """Carga configuración desde settings.json"""
-    default_targets = [
-        {"ip": "192.168.0.11", "mac": "38:c8:04:31:17:b0"},
-        {"ip": "192.168.0.10", "mac": "34:51:80:f9:86:4a"},
-        {"ip": "192.168.0.9",  "mac": "8C:98:06:02:70:4E"}  # Deco Telecentro
+def load_tvs_config() -> List[Dict[str, Any]]:
+    """Carga la lista de TVs habilitadas desde settings.json"""
+    config_dir: str = get_config_dir()
+    proj_root: Optional[str] = find_project_root()
+    
+    paths: List[str] = [
+        os.path.join(config_dir, "settings.json"),
+        os.path.join(str(proj_root), "config", "settings.json") if proj_root else ""
     ]
     
-    paths = [
-        os.path.join(os.path.expanduser("~"), ".config", "Fina", "settings.json"),
-        os.path.join(PROJECT_ROOT, "config", "settings.json")
-    ]
-
     for p in paths:
-        if os.path.exists(p):
+        if p and os.path.exists(p):
             try:
-                with open(p, "r") as f:
-                    data = json.load(f)
-                    tvs = data.get("tvs", [])
-                    if isinstance(tvs, dict):
-                       return [v for k, v in tvs.items() if v.get("enabled", True)]
-                    elif isinstance(tvs, list):
+                with open(p, "r", encoding="utf-8") as f:
+                    data: Dict[str, Any] = json.load(f)
+                    tvs: Any = data.get("tvs", [])
+                    if isinstance(tvs, list):
                         return [t for t in tvs if t.get("enabled", True)]
-            except: pass
-    
-    return default_targets
+            except Exception:
+                pass
+    return []
 
-def connect_loop(specific_target=None):
-    """Ciclo principal"""
-    print('=' * 60)
-    print('TV ON - Modo Inteligente')
-    print('=' * 60)
-    
-    if specific_target:
-        targets = [specific_target]
-        print(f"🎯 Objetivo único: {specific_target.get('ip', 'Desconocido')}")
-    else:
-        targets = load_targets_from_settings()
-        print(f"📋 Escaneando {len(targets)} objetivos...")
-    
-    cycle_count = 1
-    max_cycles = 3  # Reducido de 10 a 3 para evitar bucles eternos 
-    
-    while cycle_count <= max_cycles:
-        print(f'\n--- Intento #{cycle_count} ---')
-        
-        if cycle_count == 1:
-            for t in targets:
-                ip_t = t.get('ip')
-                if ip_t:
-                    # Intento preventivo de desconexión para limpiar estados zombies
-                    try:
-                        subprocess.run(['adb', 'disconnect', ip_t], capture_output=True, timeout=2)
-                    except: pass
-
-        for target in targets:
-            ip = target.get('ip')
-            mac = target.get('mac')
-            
-            if not ip: continue
-
-            # 1. WoL (Para sacarla de sueño profundo si está apagada)
-            if mac:
-                print(f"○ Enviando WoL a {mac} ({ip})...")
-                wake_on_lan(mac, ip_hint=ip)
-            
-            # 2. Intentar conectar ADB
-            print(f"🔌 Intentando conectar ADB a {ip}...")
-            try:
-                subprocess.run(['adb', 'connect', ip], capture_output=True, timeout=5)
-            except subprocess.TimeoutExpired:
-                print(f"⚠️ Timeout conectando a {ip}")
-                continue
-            except Exception as e:
-                print(f"⚠️ Error conectando a {ip}: {e}")
-                continue
-
-            # 3. Verificar si responde y enviar Power
-            if check_device_connection(ip):
-                 print(f"✓ {ip} conectado via ADB.")
-                 send_power_and_exit(ip) # Esto hace sys.exit si funciona
-        
-        print("⏳ Esperando respuesta de la red...")
-        time.sleep(3)
-        cycle_count += 1
-
-    print('\n✗ No se pudo encender la TV.')
-    sys.exit(1)
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
+def main() -> None:
+    """Función principal de encendido inteligente"""
+    parser = argparse.ArgumentParser(description="Encendido inteligente TV TCL")
     parser.add_argument("--ip", help="IP específica")
-    parser.add_argument("--mac", help="MAC específica")
+    parser.add_argument("--mac", help="MAC para WoL")
     args = parser.parse_args()
 
-    target = None
+    print("🔌 Fina Ergen: Smart TV ON")
+    print("=" * 40)
+
+    targets: List[Dict[str, Any]] = []
     if args.ip:
-        target = {"ip": args.ip, "mac": args.mac}
-    
+        targets.append({"ip": args.ip, "mac": args.mac})
+    else:
+        targets = load_tvs_config()
+
+    if not targets:
+        print("❌ No se encontraron TVs configuradas.")
+        sys.exit(1)
+
+    for target in targets:
+        ip: Optional[str] = target.get("ip")
+        mac: Optional[str] = target.get("mac")
+        
+        if not ip: continue
+        
+        # 1. Intentar despertar vía WoL
+        if mac:
+            print(f"○ Enviando Magic Packet (WoL) a {mac}...")
+            wake_on_lan(mac, ip_hint=ip)
+            
+        # 2. Conectar y despertar vía ADB
+        target_adb: str = f"{ip}:5555" if ":" not in str(ip) else str(ip)
+        print(f"📡 Intentando conectar a {target_adb}...")
+        
+        try:
+            subprocess.run(["adb", "connect", target_adb], capture_output=True, timeout=3) # type: ignore
+            if check_adb_online(str(ip)):
+                send_wakeup(str(ip))
+                print(f"✓ {ip} está encendida.")
+                sys.exit(0)
+            else:
+                print(f"⚠ {ip} no responde a ADB aún...")
+        except Exception as e:
+            print(f"⚠️ Error en ciclo ADB: {e}")
+
+    print("\n⌛ Ciclo completado sin éxito total. Verificá la red.")
+
+if __name__ == "__main__":
     try:
-        connect_loop(target)
+        main()
     except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
         sys.exit(1)

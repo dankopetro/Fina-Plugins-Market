@@ -4,234 +4,120 @@ import time
 import argparse
 import os
 import json
+from pathlib import Path
+from typing import Optional, List, Dict, Any
 
-# Ajustar ruta al proyecto
-script_dir = os.path.dirname(os.path.abspath(__file__))
-USER_HOME = os.path.expanduser("~")
-PROJECT_ROOT = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
-if "Descargas/Fina-Ergen/plugins" in script_dir:
-    PROJECT_ROOT = script_dir.split("/plugins")[0]
-elif "Descargas/Fina-Ergen/.local_lab" in script_dir:
-    PROJECT_ROOT = script_dir.split("/.local_lab")[0]
-sys.path.append(PROJECT_ROOT)
+def get_config_dir() -> str:
+    """Obtiene el directorio de configuración de Fina siguiendo estándares XDG"""
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return str(xdg_config)
+    return str(Path.home() / ".config" / "Fina")
 
-def load_ips_from_settings():
-    """Carga IPs desde la configuración"""
-    default_ips = ['192.168.0.11', '192.168.0.10']
+def find_project_root() -> Optional[str]:
+    """Busca la raíz del proyecto basándose en package.json"""
+    curr = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (curr / "package.json").exists() or (curr / "src" / "App.vue").exists():
+            return str(curr)
+        curr = curr.parent
+    return None
+
+def load_tvs_config() -> List[Dict[str, Any]]:
+    """Carga la lista de IPs de TVs desde settings.json"""
+    config_dir: str = get_config_dir()
+    proj_root: Optional[str] = find_project_root()
     
-    paths = [
-        os.path.join(os.path.expanduser("~"), ".config", "Fina", "settings.json"),
-        os.path.join(PROJECT_ROOT, "config", "settings.json")
+    paths: List[str] = [
+        os.path.join(config_dir, "settings.json"),
+        os.path.join(str(proj_root), "config", "settings.json") if proj_root else ""
     ]
     
     for p in paths:
-        if os.path.exists(p):
+        if p and os.path.exists(p):
             try:
-                with open(p, "r") as f:
-                    data = json.load(f)
-                    tvs = data.get("tvs", [])
-                    if isinstance(tvs, dict):
-                         return [v['ip'] for k, v in tvs.items() if v.get('enabled', True) and 'ip' in v]
-                    elif isinstance(tvs, list):
-                         return [t['ip'] for t in tvs if t.get('enabled', True) and 'ip' in t]
-            except: pass
-            
-    return default_ips
+                with open(p, "r", encoding="utf-8") as f:
+                    data: Dict[str, Any] = json.load(f)
+                    tvs: Any = data.get("tvs", [])
+                    if isinstance(tvs, list):
+                        return [t for t in tvs if t.get("enabled", True)]
+            except Exception:
+                pass
+    return []
 
-def check_device_connection(ip):
-    """Verifica si el dispositivo está conectado y responde"""
+def check_adb_online(ip: str) -> bool:
+    """Verifica si el dispositivo responde vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
     try:
-        result = subprocess.run(
-            ['adb', 'devices'],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        # Buscar la IP en la lista de dispositivos conectados
-        for line in result.stdout.split('\n'):
-            if ip in line and 'device' in line and 'offline' not in line:
-                return True
-        return False
-    except Exception as e:
-        print(f'Error verificando dispositivo: {e}')
+        res = subprocess.run(["adb", "-s", target, "shell", "echo", "1"], capture_output=True, timeout=2) # type: ignore
+        return res.returncode == 0
+    except Exception:
         return False
 
-def connect_to_tv(ip):
-    """Intenta conectarse a la TV via ADB"""
+def send_sleep(ip: str) -> bool:
+    """Envía el comando SLEEP a la TV vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
+    print(f"💤 Apagando TV en {target}...")
     try:
-        print(f'Intentando conectar a {ip}...')
-        result = subprocess.run(
-            ['adb', 'connect', ip],
-            capture_output=True,
-            text=True,
-            timeout=10
-        )
-        print(result.stdout.strip())
-        
-        # Esperar un momento para que se establezca la conexión
-        time.sleep(2)
-        
-        # Verificar si la conexión fue exitosa
-        if check_device_connection(ip):
-            print(f'✓ Conectado exitosamente a {ip}')
+        # KEYCODE_SLEEP = 223
+        res = subprocess.run(["adb", "-s", target, "shell", "input", "keyevent", "223"], capture_output=True, timeout=3) # type: ignore
+        if res.returncode == 0:
+            print("✅ Comando SLEEP enviado.")
             return True
-        else:
-            print(f'✗ No se pudo conectar a {ip}')
-            return False
-            
-    except subprocess.TimeoutExpired:
-        print(f'✗ Timeout al conectar a {ip}')
         return False
     except Exception as e:
-        print(f'✗ Error al conectar a {ip}: {e}')
+        print(f"❌ Error enviando SLEEP: {e}")
         return False
 
-def send_sleep_command(ip):
-    """Envía el comando de apagado a la TV"""
-    try:
-        print(f'Enviando comando de apagado a {ip}...')
-        result = subprocess.run(
-            ['adb', '-s', f'{ip}:5555', 'shell', 'input', 'keyevent', 'KEYCODE_SLEEP'],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        
-        if result.returncode == 0:
-            print(f'✓ Comando de apagado enviado exitosamente a {ip}')
-            return True
-        else:
-            print(f'✗ Error al enviar comando: {result.stderr}')
-            return False
-            
-    except subprocess.TimeoutExpired:
-        # El timeout es normal, el comando puede haberse ejecutado
-        print(f'⚠ Comando enviado (timeout esperado)')
-        return True
-    except Exception as e:
-        print(f'✗ Error al enviar comando: {e}')
-        return False
-
-def disconnect_from_tv(ip):
-    """Desconecta de la TV"""
-    try:
-        print(f'Desconectando de {ip}...')
-        result = subprocess.run(
-            ['adb', 'disconnect', ip],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        print(result.stdout.strip())
-    except Exception as e:
-        print(f'Error al desconectar: {e}')
-
-def restart_adb_and_connect(possible_ips):
-    """Reinicia el servidor ADB e intenta conectar a todas las IPs"""
-    print('\n🔄 Reiniciando servidor ADB...')
-    try:
-        # Matar el servidor ADB
-        subprocess.run(['adb', 'kill-server'], capture_output=True, timeout=5)
-        time.sleep(1)
-        
-        # Iniciar el servidor ADB
-        subprocess.run(['adb', 'start-server'], capture_output=True, timeout=5)
-        time.sleep(2)
-        
-        print('✓ Servidor ADB reiniciado')
-        
-        # Intentar conectar a todas las IPs
-        for ip in possible_ips:
-            print(f'Intentando conectar a {ip}...')
-            try:
-                result = subprocess.run(
-                    ['adb', 'connect', ip],
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-                print(result.stdout.strip())
-                time.sleep(2)
-            except Exception as e:
-                print(f'Error conectando a {ip}: {e}')
-        
-        # Verificar qué dispositivos están conectados
-        result = subprocess.run(['adb', 'devices'], capture_output=True, text=True, timeout=3)
-        print('\nDispositivos conectados:')
-        print(result.stdout)
-        
-        return True
-    except Exception as e:
-        print(f'✗ Error reiniciando ADB: {e}')
-        return False
-
-def turn_off_android_tv(possible_ips):
-    """Intenta apagar la TV probando múltiples IPs"""
-    print('=' * 60)
-    print('APAGANDO ANDROID TV')
-    print('=' * 60)
-    
-    # Primer intento: conexión normal
-    for ip in possible_ips:
-        print(f'\n--- Probando IP: {ip} ---')
-        
-        # Primero verificar si ya está conectado
-        if check_device_connection(ip):
-            print(f'✓ Ya conectado a {ip}')
-            if send_sleep_command(ip):
-                disconnect_from_tv(ip)
-                print(f'\n✓ TV apagada exitosamente usando {ip}')
-                return True
-        else:
-            # Intentar conectar
-            if connect_to_tv(ip):
-                if send_sleep_command(ip):
-                    disconnect_from_tv(ip)
-                    print(f'\n✓ TV apagada exitosamente usando {ip}')
-                    return True
-    
-    # Segundo intento: reiniciar ADB y probar de nuevo
-    print('\n⚠ No se pudo conectar con el método normal')
-    print('Intentando reiniciar servidor ADB...')
-    
-    if restart_adb_and_connect(possible_ips):
-        # Intentar de nuevo después del reinicio
-        for ip in possible_ips:
-            print(f'\n--- Reintentando IP: {ip} ---')
-            if check_device_connection(ip):
-                print(f'✓ Conectado a {ip}')
-                if send_sleep_command(ip):
-                    disconnect_from_tv(ip)
-                    print(f'\n✓ TV apagada exitosamente usando {ip}')
-                    return True
-    
-    print('\n✗ No se pudo apagar la TV con ninguna IP')
-    return False
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Turn off Android TV via ADB')
-    parser.add_argument('--ip', type=str, help='IP address of the TV')
+def main() -> None:
+    """Función principal de apagado inteligente"""
+    parser = argparse.ArgumentParser(description="Apagado inteligente TV TCL")
+    parser.add_argument("--ip", help="IP específica de la TV")
     args = parser.parse_args()
 
+    print("🔌 Fina Ergen: Smart TV OFF")
+    print("=" * 40)
+
+    targets: List[Dict[str, Any]] = []
     if args.ip:
-        # Si se especifica IP, SOLO intentamos esa
-        tv_ips = [args.ip]
-        print(f"Objetivo específico: {args.ip}")
+        targets.append({"ip": args.ip})
     else:
-        # Fallback a lista hardcodeada o cargar de settings
-        tv_ips = load_ips_from_settings()
-        if not tv_ips:
-            tv_ips = ['192.168.0.11', '192.168.0.10']
-    
-    try:
-        success = turn_off_android_tv(tv_ips)
-        sys.exit(0 if success else 1)
-    except KeyboardInterrupt:
-        print('\n\nOperación cancelada por el usuario')
+        targets = load_tvs_config()
+
+    if not targets:
+        print("❌ No se encontraron IPs configuradas.")
         sys.exit(1)
-    except Exception as e:
-        print(f'\n✗ Error inesperado: {e}')
-        # Loguear error para diagnóstico
-        import traceback
-        traceback.print_exc()
+
+    all_success: bool = True
+    for target in targets:
+        ip: Optional[str] = target.get("ip")
+        if not ip: continue
+        
+        target_str: str = str(ip)
+        target_adb: str = f"{target_str}:5555" if ":" not in target_str else target_str
+        
+        print(f"📡 Intentando conectar a {target_adb}...")
+        try:
+            subprocess.run(["adb", "connect", target_adb], capture_output=True, timeout=3) # type: ignore
+            if check_adb_online(target_str):
+                if send_sleep(target_str):
+                    print(f"✓ {target_str} apagada.")
+                else:
+                    all_success = False
+            else:
+                print(f"⚠ {target_str} no responde a ADB.")
+                all_success = False
+        except Exception as e:
+            print(f"⚠️ Error en ciclo ADB para {target_str}: {e}")
+            all_success = False
+
+    sys.exit(0 if all_success else 1)
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
         sys.exit(1)

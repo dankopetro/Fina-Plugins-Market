@@ -3,16 +3,20 @@ import sys
 import json
 import os
 
-# Define local configuration path explicitly
-config_dir = os.environ.get("XDG_CONFIG_HOME")
-if config_dir:
-    config_dir = os.path.join(config_dir, "Fina")
-else:
-    config_dir = os.path.expanduser("~/.config/Fina")
-    
-SETTINGS_FILE = os.path.join(config_dir, "settings.json")
+from typing import Optional, Dict, Any
 
-def get_target_ip():
+# Define local configuration path explicitly
+def get_config_file_path() -> str:
+    config_dir = os.environ.get("XDG_CONFIG_HOME")
+    if config_dir:
+        config_dir = os.path.join(config_dir, "Fina")
+    else:
+        config_dir = os.path.expanduser("~/.config/Fina")
+    return os.path.join(config_dir, "settings.json")
+
+SETTINGS_FILE = get_config_file_path()
+
+def get_target_ip() -> Optional[str]:
     if "--ip" in sys.argv:
         try:
             return sys.argv[sys.argv.index("--ip") + 1]
@@ -20,7 +24,7 @@ def get_target_ip():
             pass
     return None
 
-def update_settings_apps_comprehensive(found_apps):
+def update_settings_apps_comprehensive(found_apps: Dict[str, str]) -> None:
     """Actualiza settings.json reemplazando la lista completa de apps"""
     print(f"📂 Usando configuración: {SETTINGS_FILE}")
     
@@ -34,6 +38,7 @@ def update_settings_apps_comprehensive(found_apps):
              return
 
     try:
+        data: Dict[str, Any] = {}
         with open(SETTINGS_FILE, 'r') as f:
             data = json.load(f)
         
@@ -47,7 +52,7 @@ def update_settings_apps_comprehensive(found_apps):
     except Exception as e:
         print(f"Error actualizando settings: {e}")
 
-def get_app_name_heuristic(pkg):
+def get_app_name_heuristic(pkg: str) -> Optional[str]:
     """Heurística para extraer un nombre legible del paquete"""
     # Filtros para ignorar ruido de sistema
     if any(x in pkg for x in ["android.", "google.", "tcl.", "mediatek.", "realtek.", "android.auto"]):
@@ -63,27 +68,28 @@ def get_app_name_heuristic(pkg):
         
     return name
 
-def list_packages():
+def list_packages() -> None:
     """Enumera todos los paquetes instalados en el dispositivo conectado"""
     ip = get_target_ip()
     if not ip:
         print("Error: No se proporcionó IP (--ip)")
         return
     
-    print(f"Connecting to {ip}...")
+    target_ip: str = ip
+    
+    print(f"Connecting to {target_ip}...")
     try:
         # Force connect
-        subprocess.run(['adb', 'connect', ip], capture_output=True, timeout=5)
+        subprocess.run(['adb', 'connect', f"{target_ip}:5555"], capture_output=True, timeout=5) # type: ignore
     except Exception as e:
         print(f"Error connecting to ADB: {e}")
         return
 
-    print(f"Listando paquetes de {ip}...")
+    print(f"Listando paquetes de {target_ip}...")
     try:
-        # Solo listamos apps de terceros que tengan launcher intent (esto filtra mucho ruido)
-        # Pero a veces 'pm list packages -3' es más confiable para lo que quiere el usuario
-        cmd = ['adb', '-s', f'{ip}:5555', 'shell', 'pm', 'list', 'packages', '-3']
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        # Solo listamos apps de terceros que tengan launcher intent
+        cmd = ['adb', '-s', f'{target_ip}:5555', 'shell', 'pm', 'list', 'packages', '-3']
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10) # type: ignore
         
         if res.returncode != 0:
             print(f"Error ADB Output: {res.stderr}")
@@ -91,8 +97,8 @@ def list_packages():
 
         all_pkgs = res.stdout.splitlines()
         
-        found_apps = {}
-        print(f"\n--- APPS DETECTADAS en {ip} ---")
+        found_apps: Dict[str, str] = {}
+        print(f"\n--- APPS DETECTADAS en {target_ip} ---")
         
         for line in all_pkgs:
             pkg = line.replace('package:', '').strip()

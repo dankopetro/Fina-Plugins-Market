@@ -1,47 +1,51 @@
-
 import subprocess
 import time
 import argparse
+import sys
+from typing import Optional, List, Any
 
-def switch_to_telecentro(ip):
-    print(f"📺 Cambiando a Telecentro (HDMI) en {ip}...")
+def switch_to_telecentro(ip: str) -> None:
+    """Cambia la entrada de la TV TCL a Telecentro (HDMI) vía ADB"""
+    target: str = f"{ip}:5555" if ":" not in ip else ip
+    print(f"📺 Cambiando a Telecentro (HDMI) en {target}...")
+    
     try:
-        # Asegurar conexión
-        subprocess.run(["adb", "connect", f"{ip}:5555"], capture_output=True, timeout=3)
+        # 1. Asegurar conexión rápida
+        subprocess.run(["adb", "connect", target], capture_output=True, timeout=3) # type: ignore
         
-        # Secuencia descrita por usuario:
-        # 1. Abrir menú de entradas (TCL Source Manager)
+        # 2. Abrir Menú de Entradas (Actividad específica TCL)
         print("📂 Abriendo Menú de Entradas...")
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "am", "start", "-n", "com.tcl.tv/com.tcl.sourcemenu.sourcemanager.MainActivity"], timeout=5)
-        time.sleep(2.5) 
-
-        # Asegurar posición inicial (KEYCODE_MOVE_HOME)
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", "122"], timeout=2)
-        time.sleep(0.5)
+        subprocess.run(["adb", "-s", target, "shell", "am", "start", "-n", "com.tcl.tv/com.tcl.sourcemenu.sourcemanager.MainActivity"], capture_output=True, timeout=5) # type: ignore
         
-        # 2. Bajar 2 veces (Ir a HDMI/Telecentro)
-        print("⬇️ Bajando x2...")
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", "20"], timeout=5) 
-        time.sleep(0.8)
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", "20"], timeout=5) 
-        time.sleep(0.8)
-
-        # 3. Enter
-        print("✅ Seleccionando Telecentro...")
-        subprocess.run(["adb", "-s", f"{ip}:5555", "shell", "input", "keyevent", "66"], timeout=5) # KEYCODE_ENTER
+        time.sleep(1.2) 
         
-        print("🚀 Cambio a Telecentro completado.")
+        # 3. Navegación (DPAD_DOWN = 20)
+        print("⬇️ Seleccionando entrada...")
+        subprocess.run(["adb", "-s", target, "shell", "input", "keyevent", "20"], capture_output=True, timeout=2) # type: ignore
+        time.sleep(0.4)
+
+        # 4. Confirmar (ENTER = 66)
+        print("✅ Confirmando con ENTER...")
+        subprocess.run(["adb", "-s", target, "shell", "input", "keyevent", "66"], capture_output=True, timeout=2) # type: ignore
+        
+        print("🚀 Cambio de entrada completado.")
 
     except Exception as e:
-        print(f"❌ Error: {e}")
+        print(f"❌ Error cambiando entrada: {e}")
+
+def main() -> None:
+    """Función principal"""
+    parser = argparse.ArgumentParser(description="Cambiar entrada TV TCL a Deco Telecentro")
+    parser.add_argument("--ip", required=True, help="IP de la TV TCL")
+    args = parser.parse_args()
+    
+    switch_to_telecentro(args.ip)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ip", required=True, help="IP del dispositivo")
-    parser.add_argument("--mac", help="MAC (opcional)")
-    args, unknown = parser.parse_known_args()
-    
-    if args.ip:
-        switch_to_telecentro(args.ip)
-    else:
-        print("❌ Faltan argumentos: --ip")
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
+        sys.exit(1)

@@ -5,64 +5,74 @@ import sys
 import socket
 import json
 import time
-
-# Configuración
-# Configuración
-UDP_IP = "127.0.0.1"
-UDP_PORT = 5555
-DEFAULT_IP = "192.168.240.112:5555"
-
 import re
-def find_waydroid_ip():
+from typing import Optional, Dict, Any, List
+
+# Configuración Ergen
+UDP_IP: str = "127.0.0.1"
+UDP_PORT: int = 5555
+DEFAULT_IP: str = "127.0.0.1:5555"
+
+# Coordenadas ajustadas a ventana de Timbre
+BTN_HANGUP_X: int = 360
+BTN_HANGUP_Y: int = 760 
+
+def find_waydroid_ip() -> str:
+    """Busca dinámicamente la IP asignada a Waydroid"""
     try:
-        status_out = subprocess.getoutput("waydroid status")
+        status_out: str = subprocess.check_output(["waydroid", "status"], text=True, timeout=5) # type: ignore
+        # Captura la IP completa 192.168.x.x en un único grupo
         ip_match = re.search(r"IP address:\s+(192\.168\.\d+\.\d+)", status_out)
         if ip_match:
             return f"{ip_match.group(1)}:5555"
-    except: pass
+    except Exception:
+        pass
     return DEFAULT_IP
 
-WAYDROID_ADB = find_waydroid_ip()
-
-# Coordenadas ajustadas a ventana 455x822
-BTN_HANGUP_X = 360
-BTN_HANGUP_Y = 760 # Botón rojo para cortar (Ajustado)
-
-def emit(data):
-    """Envía eventos al Cerebro Phoenix vía UDP"""
+def emit_event(data: Dict[str, Any]) -> None:
+    """Notifica eventos al sistema Ergen vía UDP"""
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        msg = json.dumps(data)
-        sock.sendto(msg.encode(), (UDP_IP, UDP_PORT))
-    except: pass
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            msg: str = json.dumps(data)
+            sock.sendto(msg.encode(), (UDP_IP, UDP_PORT))
+    except Exception:
+        pass
 
-def main():
-    print(f"📞 Iniciando Terminación de Llamada en {WAYDROID_ADB}...")
+def main() -> None:
+    """Terminación de llamada y limpieza Tuya Smart"""
+    waydroid_target: str = find_waydroid_ip()
+    print(f"📞 Finalizando llamada en {waydroid_target}...")
     
     # 1. Notificar al sistema
-    emit({"type": "event", "name": "doorbell-hangup", "module": "doorbell"})
+    emit_event({"type": "event", "name": "doorbell-hangup", "module": "doorbell"})
     
     try:
-        # 2. Tap en pantalla (Botón rojo)
+        # 2. Toque en botón de colgar (Rojo)
         subprocess.run(
-            ["adb", "-s", WAYDROID_ADB, "shell", "input", "tap", str(BTN_HANGUP_X), str(BTN_HANGUP_Y)],
+            ["adb", "-s", waydroid_target, "shell", "input", "tap", str(BTN_HANGUP_X), str(BTN_HANGUP_Y)],
+            capture_output=True,
             timeout=5
-        )
+        ) # type: ignore
         
-        print("⏳ Esperando cierre de llamada...")
-        time.sleep(2)
+        print("⏳ Limpiando aplicación y estado...")
+        time.sleep(1.5)
 
-        # 3. Limpieza: Matar Tuya y volver al Home
-        print("🧹 Limpiando Waydroid (Kill App + Home)...")
-        subprocess.run(["adb", "-s", WAYDROID_ADB, "shell", "am", "force-stop", "com.tuya.smart"], stderr=subprocess.DEVNULL)
-        subprocess.run(["adb", "-s", WAYDROID_ADB, "shell", "input", "keyevent", "KEYCODE_HOME"], stderr=subprocess.DEVNULL)
+        # 3. Force stop de Tuya Smart para liberar recursos
+        subprocess.run(["adb", "-s", waydroid_target, "shell", "am", "force-stop", "com.tuya.smart"], capture_output=True, timeout=5) # type: ignore
+        # 4. Volver al Home de Android
+        subprocess.run(["adb", "-s", waydroid_target, "shell", "input", "keyevent", "KEYCODE_HOME"], capture_output=True, timeout=5) # type: ignore
         
-        print("✅ Llamada finalizada y escritorio limpio.")
-        
-        print("✅ Llamada finalizada y recursos liberados.")
+        print("✅ Llamada finalizada y escritorio optimizado.")
         
     except Exception as e:
-        print(f"❌ Error en hangup: {e}")
+        print(f"❌ Error en rutina hangup: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
+    except Exception as fatal:
+        print(f"✗ Fatal: {fatal}")
+        sys.exit(1)

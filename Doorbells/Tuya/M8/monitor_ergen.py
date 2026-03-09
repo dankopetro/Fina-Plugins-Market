@@ -1,492 +1,348 @@
+#!/usr/bin/env python3
 import time
 import subprocess
 import os
 import sys
 import logging
+import json
+import re
+import socket
+import urllib.request
+from pathlib import Path
+from typing import Optional, Any, List, Dict, Tuple
 
-# Configuración
-DOORBELL_IP = "192.168.0.5"
-CHECK_INTERVAL = 3.0
-VIRTUAL_SINK_NAME = "FinaVoice"
-WAYDROID_ADB = "192.168.240.112:5555"
+# Configuración Base
+CHECK_INTERVAL: float = 3.0
+VIRTUAL_SINK_NAME: str = "FinaVoice"
+# IP por defecto de Waydroid (común), pero se puede sobreescrito por config
+WAYDROID_ADB_DEFAULT: str = "127.0.0.1:5555"
 
-def wait_for_adb(timeout=60):
-    """Espera a que el dispositivo ADB esté listo y devuelve True/False"""
-    start = time.time()
-    try:
-        while time.time() - start < timeout:
-            # 1. Intentar connect
-            subprocess.run(f"adb connect {WAYDROID_ADB}", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            # 2. Verificar listado
-            res = subprocess.run("adb devices", shell=True, stdout=subprocess.PIPE).stdout.decode()
-            if WAYDROID_ADB in res and "\tdevice" in res:
-                return True
-            time.sleep(2)
-    except: pass
-    return False
+# Configurar logging profesional
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+logger = logging.getLogger("DoorbellMonitor")
 
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
-logger = logging.getLogger(__name__)
+def get_config_dir() -> str:
+    """Obtiene el directorio de configuración de Fina siguiendo estándares XDG"""
+    xdg_config = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config:
+        return str(xdg_config)
+    return str(Path.home() / ".config" / "Fina")
 
-# RUTA AL PROYECTO (Dinámica y Resiliente)
-script_dir = os.path.dirname(os.path.abspath(__file__))
-# Fallback hardcodeado para la máquina del usuario
-USER_HOME = os.path.expanduser("~")
-REPO_FALLBACK = os.path.join(USER_HOME, "Descargas/Fina-Ergen")
+def find_project_root() -> Optional[str]:
+    """Busca la raíz del proyecto basándose en package.json"""
+    curr = Path(__file__).resolve().parent
+    for _ in range(5):
+        if (curr / "package.json").exists() or (curr / "src" / "App.vue").exists():
+            return str(curr)
+        curr = curr.parent
+    return None
 
-def find_script(script_rel_path):
-    """Busca un script en varias ubicaciones posibles"""
+def find_script(script_rel_path: str) -> Optional[str]:
+    """Busca un script en varias ubicaciones posibles del sistema"""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    proj_root = find_project_root()
+    user_home = str(Path.home())
+    
     posibles = [
-        os.path.join(script_dir, script_rel_path),             # Directorio local del plugin (Market Fix)
-        os.path.join(script_dir, "../../..", script_rel_path), # Si esta en la repo/plugins
-        os.path.join(REPO_FALLBACK, script_rel_path),         # Repo del usuario
-        os.path.join("/usr/lib/fina-ergen", script_rel_path),   # Instalado
-        os.path.join(os.getcwd(), script_rel_path)            # CWD
+        os.path.join(script_dir, script_rel_path),
+        os.path.join(script_dir, "../../..", script_rel_path),
+        os.path.join(user_home, "Descargas/Fina-Ergen", script_rel_path),
+        os.path.join("/usr/lib/fina-ergen", script_rel_path),
+        os.path.join(os.getcwd(), script_rel_path)
     ]
     for p in posibles:
-        if os.path.exists(p):
+        if p and os.path.exists(p):
             return p
     return None
 
-PROJECT_ROOT = REPO_FALLBACK # Default
-sys.path.append(PROJECT_ROOT)
+def load_doorbell_config() -> Tuple[str, bool]:
+    """Carga la configuración del timbre desde settings.json"""
+    config_dir: str = get_config_dir()
+    proj_root: Optional[str] = find_project_root()
+    doorbell_ip: str = ""
+    configured: bool = False
 
-# --- CARGAR CONFIGURACIÓN ---
-DOORBELL_CONFIGURED = False
-try:
-    def get_config_dir():
-        xdg_config = os.environ.get("XDG_CONFIG_HOME")
-        if xdg_config:
-            return os.path.join(xdg_config, "Fina")
-        return os.path.expanduser("~/.config/Fina")
-
-    config_dir = get_config_dir()
-    paths = [
+    paths: List[str] = [
         os.path.join(config_dir, "settings.json"),
-        os.path.join(PROJECT_ROOT, "config/settings.json")
+        os.path.join(str(proj_root), "config", "settings.json") if proj_root else ""
     ]
+    
     for p in paths:
-        if os.path.exists(p):
-            import json
-            with open(p, "r") as f:
-                data = json.load(f)
-            
-            # 1. Mirar en APIS
-            timeout_ip = data.get("apis", {}).get("TIMBRE_IP")
-            if timeout_ip:
-                DOORBELL_IP = timeout_ip
-                DOORBELL_CONFIGURED = True
-            
-            # 2. Mirar en Devices (Filtro estricto para evitar cámaras IP genéricas)
-            devices = data.get("devices", [])
-            for d in devices:
-                d_type = str(d.get("type", "")).lower()
-                d_name = str(d.get("name", "")).lower()
-                
-                # Criterios: Que sea un Timbre explícito o que use la marca Tuya
-                es_timbre = d_type in ["timbre", "doorbell"] or "timbre" in d_name or "doorbell" in d_name
-                es_tuya = "tuya" in d_type or "tuya" in d_name
-                
-                if es_timbre or es_tuya:
-                    DOORBELL_IP = d.get("ip", DOORBELL_IP)
-                    DOORBELL_CONFIGURED = True
-                    break
-except: pass
-# ----------------------------
+        if p and os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    data: Dict[str, Any] = json.load(f)
+                    # 1. Mirar en APIS
+                    timeout_ip = data.get("apis", {}).get("TIMBRE_IP")
+                    if timeout_ip:
+                        doorbell_ip = str(timeout_ip)
+                        configured = True
+                    
+                    # 2. Mirar en Devices
+                    devices: Any = data.get("devices", [])
+                    if isinstance(devices, list):
+                        for d in devices:
+                            d_type: str = str(d.get("type", "")).lower()
+                            d_name: str = str(d.get("name", "")).lower()
+                            if any(x in d_type or x in d_name for x in ["timbre", "doorbell", "tuya"]):
+                                doorbell_ip = str(d.get("ip", doorbell_ip))
+                                configured = True
+                                break
+            except Exception:
+                pass
+    return doorbell_ip, configured
 
-# Importar utils o definir fallbacks
-try:
-    from utils import speak, show_doorbell_stream
-except ImportError:
-    def speak(text, model=None):
-        print(f"🗣️ (Fallback) {text}", flush=True)
-        # Fallback simple
+def wait_for_adb(target: str, timeout: int = 60) -> bool:
+    """Espera a que el dispositivo ADB esté listo"""
+    start: float = time.time()
+    while time.time() - start < timeout:
         try:
-           import json
-           print(json.dumps({"type": "event", "name": "fina-state", "payload": {"status": "speaking", "process": text}}), flush=True)
-        except: pass
-    def show_doorbell_stream(model=None):
-        pass
+            subprocess.run(["adb", "connect", target], capture_output=True, timeout=5) # type: ignore
+            res = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=3) # type: ignore
+            if target in res.stdout and "device" in res.stdout and "offline" not in res.stdout:
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
 
-def setup_virtual_audio():
-    """Configura el sink virtual para audio limpio"""
+def setup_virtual_audio() -> None:
+    """Configura el sink virtual para aislamiento de audio"""
     try:
-        # 1. Verificar/Crear SINK
-        cmd_check_sink = f"pactl list short sinks | grep {VIRTUAL_SINK_NAME}"
-        if subprocess.run(cmd_check_sink, shell=True, stdout=subprocess.DEVNULL).returncode != 0:
-            print("🎛️ Creando Audio Virtual (Sink)...")
-            cmd_create = f"pactl load-module module-null-sink sink_name={VIRTUAL_SINK_NAME} sink_properties=device.description=Fina_Virtual_Mic"
-            subprocess.run(cmd_create, shell=True)
+        # 1. Sink Virtual
+        check_sink = subprocess.run(f"pactl list short sinks | grep {VIRTUAL_SINK_NAME}", shell=True, capture_output=True)
+        if check_sink.returncode != 0:
+            logger.info("🎛️ Creando Sink Virtual Ergen...")
+            subprocess.run(["pactl", "load-module", "module-null-sink", f"sink_name={VIRTUAL_SINK_NAME}", f"sink_properties=device.description=Fina_Virtual_Mic"], capture_output=True) # type: ignore
 
-        # 2. Verificar/Crear LOOPBACK (Para que escuches lo que pasa en el virtual)
-        # Buscamos un módulo loopback que tenga nuestro sink como source
-        cmd_check_loop = f"pactl list short modules | grep module-loopback | grep {VIRTUAL_SINK_NAME}.monitor"
-        if subprocess.run(cmd_check_loop, shell=True, stdout=subprocess.DEVNULL).returncode != 0:
-            print("🎛️ Creando Audio Virtual (Loopback)...")
-            # Dejar que PulseAudio decida el sink de salida (default)
-            cmd_loop = f"pactl load-module module-loopback source={VIRTUAL_SINK_NAME}.monitor"
-            subprocess.run(cmd_loop, shell=True, stderr=subprocess.DEVNULL)
-            
-        # 3. Restaurar Microfono Default
-        try:
-            # Intentar buscar MICRÓFONO INTERNO (PCI) primero
-            mic_cmd = "pactl list short sources | grep 'input' | grep -v 'monitor' | grep 'pci' | head -n1 | cut -f2"
-            res = subprocess.run(mic_cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().strip()
-            
-            # Si no hay interno, buscar CUALQUIERA (USB, etc.)
-            if not res:
-                mic_cmd = "pactl list short sources | grep 'input' | grep -v 'monitor' | head -n1 | cut -f2"
-                res = subprocess.run(mic_cmd, shell=True, stdout=subprocess.PIPE).stdout.decode().strip()
-
-            if res:
-                 subprocess.run(f"pactl set-default-source {res}", shell=True)
-                 print(f"🎤 Default Source restaurado a: {res}")
-        except Exception as ex:
-             print(f"⚠️ No se pudo restaurar default mic: {ex}")
+        # 2. Loopback
+        check_loop = subprocess.run(f"pactl list short modules | grep module-loopback | grep {VIRTUAL_SINK_NAME}.monitor", shell=True, capture_output=True)
+        if check_loop.returncode != 0:
+            logger.info("🎛️ Creando Loopback Virtual...")
+            subprocess.run(["pactl", "load-module", "module-loopback", f"source={VIRTUAL_SINK_NAME}.monitor"], capture_output=True) # type: ignore
             
     except Exception as e:
-        print(f"⚠️ Error setup audio: {e}")
+        logger.error(f"⚠️ Error setup audio: {e}")
 
-def is_online(ip):
+def is_device_online(ip: str) -> bool:
+    """Verifica conectividad IP rápida"""
+    if not ip: return False
     try:
-        res = subprocess.run(["ping", "-c", "1", "-W", "1", ip], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        res = subprocess.run(["ping", "-c", "1", "-W", "1", ip], capture_output=True, timeout=2) # type: ignore
         return res.returncode == 0
-    except:
+    except Exception:
         return False
 
-def get_audio_ids():
-    """Devuelve (virtual_source, mic_source) o (None, '58')"""
+def speak_local(text: str) -> None:
+    """Feedback de voz local (intenta usar Fina, fallback a print)"""
+    logger.info(f"🗣️ Notificación: {text}")
     try:
-        # Virtual Source (Monitor del Null Sink)
-        v_cmd = f"pactl list short sources | grep '{VIRTUAL_SINK_NAME}.monitor' | cut -f1"
-        virtual = subprocess.check_output(v_cmd, shell=True).decode().strip()
-        
-        # Mic Físico (Input analógico default)
-        m_cmd = "pactl list short sources | grep 'analog-stereo' | grep 'input' | head -n1 | cut -f1"
-        mic = subprocess.check_output(m_cmd, shell=True).decode().strip()
-        
-        return virtual, mic
-    except:
-        return None, "58"
+        from utils import speak # type: ignore
+        speak(text)
+    except ImportError:
+        print(f"(LOG) {text}")
 
-def find_waydroid_stream():
-    """Intenta encontrar el ID del stream de grabación de Waydroid"""
-    for _ in range(10): # 5 intentos rápidos (0.1s * 10 = 1s total) - Ajustado a 10 para dar margen
-        try:
-            output = subprocess.check_output("pactl list source-outputs", shell=True).decode()
-            if "Waydroid" in output:
-                # Parseo bruto pero efectivo
-                blocks = output.split("Salida de fuente #")
-                for block in blocks:
-                    if "Waydroid" in block:
-                        return block.split("\n")[0].strip()
-        except:
-            pass
-        time.sleep(0.1)
-    return None
-
-def ensure_android_environment():
-    """Verifica si Waydroid/Weston están corriendo. Si no, los inicia."""
+def ensure_infrastructure() -> bool:
+    """Asegura que Waydroid y Weston estén operativos"""
     try:
-        # Chequear si waydroid session está activa
-        # Buscamos procesos de waydroid
-        check = subprocess.run("pgrep -f 'waydroid session'", shell=True, stdout=subprocess.DEVNULL)
-        
-        # FORZAR SIEMPRE EL ARRANQUE (El script bash maneja la limpieza de duplicados)
-        # Esto soluciona el problema de detecciones falsas o zombies que impiden que Weston se abra
-        if True: # Simular que siempre se necesita iniciar
-            print("🚀 Iniciando infraestructura Android (Weston + Waydroid)...")
-            # Definir entorno gráfico explícito para Weston
+        check = subprocess.run(["pgrep", "-f", "waydroid session"], capture_output=True) # type: ignore
+        if check.returncode != 0:
+            logger.info("🚀 Iniciando sistema Android oculto...")
+            script_path: Optional[str] = find_script("scripts/start_hidden_system.sh")
+            if not script_path:
+                logger.error("❌ No se encontró script de arranque.")
+                return False
+
             env = os.environ.copy()
             env["DISPLAY"] = ":0"
-            env["XDG_RUNTIME_DIR"] = f"/run/user/{os.getuid()}"
+            subprocess.Popen(["bash", script_path], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
             
-            # Ejecutar el script de arranque en segundo plano
-            script_path = find_script("scripts/start_hidden_system.sh")
-            
-            if not script_path:
-                print(f"ERROR: No encuentro scripts/start_hidden_system.sh en ninguna ruta conocida.")
-                return
+            if not wait_for_adb(WAYDROID_ADB_DEFAULT):
+                logger.error("❌ Error: Waydroid no respondió.")
+                return False
 
-            print(f"📂 Usando script: {script_path}")
-            subprocess.Popen(["bash", script_path], 
-                           env=env, # Inyectar display
-                           stdout=subprocess.DEVNULL, 
-                           stderr=subprocess.DEVNULL,
-                           start_new_session=True)
-            
-            # Darle tiempo para arrancar (es pesado) - ESPERA INTELIGENTE
-            print("⏳ Esperando conexión ADB (máx 60s)...")
-            
-            if not wait_for_adb(60):
-                print("❌ ERROR CRITICO: Waydroid no arrancó a tiempo.")
-                return 
-
-            print("✅ Waydroid conectado. Esperando 5s para estabilizar sistema...")
             time.sleep(5)
-
-            # Desbloqueo explícito por si acaso
-            subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent 224", shell=True)
-            subprocess.run(f"adb -s {WAYDROID_ADB} shell wm dismiss-keyguard", shell=True)
-            
-            # PRE-LAUNCH TUYA SMART (Y minimizar)
-            print("📱 Pre-calentando Tuya Smart (SplashActivity)...")
-            # Usamos am start directo a la Activity correcta
-            subprocess.run(f"adb -s {WAYDROID_ADB} shell am start -n com.tuya.smart/com.smart.ThingSplashActivity", shell=True)
+            # Desbloqueo y pre-calentamiento
+            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "keyevent", "224"], capture_output=True) # type: ignore
+            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "wm", "dismiss-keyguard"], capture_output=True) # type: ignore
+            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "am", "start", "-n", "com.tuya.smart/com.smart.ThingSplashActivity"], capture_output=True) # type: ignore
             time.sleep(5)
-            # Volver a Home
-            subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent 3", shell=True)
+            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "keyevent", "3"], capture_output=True) # type: ignore
             
-            # --- LANZAR STREAMER (NUEVO) ---
-            print("🎥 Iniciando servidor de Video Stream...")
-            streamer_path = find_script("streamer.py")
-            if streamer_path:
-                subprocess.Popen([sys.executable, streamer_path], 
-                               stdout=subprocess.DEVNULL, 
-                               stderr=subprocess.DEVNULL,
-                               start_new_session=True)
-                print("✅ Streamer iniciado.")
-            else:
-                print("⚠️ No se encontró streamer.py en las rutas conocidas.")
-
-            # ELIMINADO: No minimizamos manualmente aquí porque start_hidden_system.sh YA lo hizo con KDocker.
-            print("✅ Tuya Smart lista en segundo plano.")
-
+            # Lanzar Streamer
+            streamer_p: Optional[str] = find_script("streamer.py")
+            if streamer_p:
+                subprocess.Popen([sys.executable, streamer_p], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        return True
     except Exception as e:
-        print(f"⚠️ Error verificando entorno Android: {e}")
+        logger.error(f"⚠️ Error infraestructura: {e}")
+        return False
 
-def monitor_loop():
-    # 0. Verificar si el plugin debe activarse
-    if not DOORBELL_CONFIGURED:
-        print("ℹ️ Plugin Doorbell: No hay un timbre configurado en settings.json. Saltando inicio de Android.")
+def api_notify(endpoint: str, data: Dict[str, Any]) -> None:
+    """Envía comandos a la API local de Fina"""
+    try:
+        url: str = f"http://127.0.0.1:18000/api/{endpoint}"
+        req = urllib.request.Request(url, data=json.dumps(data).encode(), headers={'Content-Type': 'application/json'}, method='POST')
+        with urllib.request.urlopen(req, timeout=0.5) as _:
+            pass
+    except Exception:
+        pass
+
+def monitor_loop() -> None:
+    """Bucle principal de monitoreo reactivo"""
+    doorbell_ip, configured = load_doorbell_config()
+    if not configured:
+        logger.info("ℹ️ Monitoreo cancelado: Timbre no configurado.")
         return
 
-    # 0. Retraso de cortesía para dejar que Fina (main.py) arranque su audio primero
-    print("⏳ Esperando 10s para no saturar audio al inicio... (Originalmente 20)")
+    logger.info("⏳ Esperando estabilización de sistema (10s)...")
     time.sleep(10)
 
-    # 1. Asegurar infraestructura
-    ensure_android_environment()
-    
-    setup_virtual_audio()
-    print(f"🕵️ Vigilando timbre {DOORBELL_IP}...")
-    
-    # ESTADO INICIAL: Chequear si ya está online al arrancar
-    # Si ya está online, asumimos que es estado basal o residual y NO activamos.
-    # Solo activaremos cuando pase de Offline -> Online.
-    if is_online(DOORBELL_IP):
-        print("⚠️ Timbre detectado ONLINE al inicio. Esperando a que se duerma para armar sistema...")
-        was_online = True
-    else:
-        print("✅ Timbre dormido. Sistema ARMADO.")
-        was_online = False
+    if not ensure_infrastructure():
+        logger.error("❌ Fallo crítico en infraestructura Android.")
+        return
 
-    last_seen = 0
-    consecutive_failures = 0
-    
+    setup_virtual_audio()
+    logger.info(f"🕵️ Vigilancia armada en {doorbell_ip}")
+
+    was_online: bool = is_device_online(doorbell_ip)
+    last_trigger: float = 0.0
+    failures: int = 0
+
     while True:
         try:
-            # Auto-Heal Streamer: Asegurar que el servidor de video esté corriendo
-            streamer_path = find_script("streamer.py")
-            if streamer_path:
-                # Verificar si el puerto 8555 está escuchando
-                import socket
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(0.1)
-                    if s.connect_ex(('127.0.0.1', 8555)) != 0:
-                        print("🎬 RE-INICIANDO STREAMER (Puerto 8555 no responde)...")
-                        subprocess.Popen([sys.executable, streamer_path], 
-                                       stdout=subprocess.DEVNULL, 
-                                       stderr=subprocess.DEVNULL,
-                                       start_new_session=True)
+            # Auto-Heal Streamer
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.2)
+                if s.connect_ex(('127.0.0.1', 8555)) != 0:
+                    str_path = find_script("streamer.py")
+                    if str_path:
+                        subprocess.Popen([sys.executable, str_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
-            online = is_online(DOORBELL_IP)
+            current_online: bool = is_device_online(doorbell_ip)
             
-            if online:
-                # Si volvemos a estar online, reseteamos el contador de fallos
-                consecutive_failures = 0
-                
-                now = time.time()
-                # Flanco de subida (Se conectó)
+            if current_online:
+                failures = 0
+                now: float = time.time()
+                # Detección de flanco de subida (Ring)
                 if not was_online:
-                    print("\n🔔 ¡TIMBRE ACTIVADO! (Offline -> Online)")
-                    
-                    # Cooldown 45s (Suficiente para nueva visita, protegido por anti-rebote)
-                    if (now - last_seen) > 45:
-                        print("🚀 INICIANDO SECUENCIA DE ATENCIÓN...")
-                        
-                        # 1. Feedback Auditivo Local
-                        speak("Atención. Alguien toca el timbre.", None)
+                    logger.info("🔔 ¡TIMBRE ACTIVADO!")
+                    if (now - last_trigger) > 60:
+                        last_trigger = now
+                        speak_local("Alguien toca el timbre.")
+                        api_notify("command", {"name": "doorbell-ring", "payload": {}})
+                        print(json.dumps({"type": "event", "name": "doorbell-ring", "payload": {}}), flush=True)
 
-                        # NOTIFICAR A LA UI (Importante para que se abra la ventana)
-                        event_data = {"type": "event", "name": "doorbell-ring", "payload": {}}
-                        print(json.dumps(event_data), flush=True)
+                        # Atender vía Waydroid
+                        subprocess.run(["adb", "connect", WAYDROID_ADB_DEFAULT], capture_output=True, timeout=5) # type: ignore
+                        # Activar Ventana
+                        subprocess.run("pkill -f kdocker", shell=True) # type: ignore
+                        subprocess.run("xdotool search --class 'weston' windowmap windowactivate", shell=True) # type: ignore
                         
-                        # Redundancia vía API
+                        # Simular atención
+                        time.sleep(2)
+                        for _ in range(2):
+                            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "tap", "325", "157"], capture_output=True) # type: ignore
+                            time.sleep(1)
+                        
+                        # Comunicación (TTS)
+                        # A. PTT (Presionar para hablar)
+                        ptt_process = None
                         try:
-                            import requests
-                            requests.post("http://127.0.0.1:18000/api/command", json={"name": "doorbell-ring", "payload": {}}, timeout=0.2)
-                        except: pass
-                        
-                        # 2. Despertar y Preparar Entorno (ADB)
-                        print("🥷 Activando Modo Ninja...")
-                        subprocess.run(f"adb connect {WAYDROID_ADB}", shell=True, stdout=subprocess.DEVNULL)
-                        
-                        # ACTIVAR VENTANA WAYDROID (Para que se vea al atender)
-                        print("📈 Trayendo Waydroid al frente (Matando KDocker)...")
-                        # 1. Matar KDocker para liberar del Tray (si estaba ahí)
-                        subprocess.run("pkill -f kdocker", shell=True)
-                        time.sleep(1)
-                        # 2. Asegurar Foco (Usamos class 'weston' que es mas robusto)
-                        subprocess.run("xdotool search --class 'weston' windowmap", shell=True)
-                        subprocess.run("xdotool search --class 'weston' windowactivate", shell=True)
-
-                        # --- SACUDIDA PARA DESPERTAR (NUEVO) ---
-                        print("⚡ Sacudiendo UI para despertar stream...")
-                        # Pequeños toques/swipes en zona segura para que Android detecte actividad
-                        subprocess.run(f"adb -s {WAYDROID_ADB} shell input swipe 300 400 305 405 50", shell=True)
-                        subprocess.run(f"adb -s {WAYDROID_ADB} shell input swipe 305 405 300 400 50", shell=True)
-
-                        # Wake & Unlock
-                        subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent 224", shell=True)
-                        subprocess.run(f"adb -s {WAYDROID_ADB} shell wm dismiss-keyguard", shell=True)
-                        subprocess.run(f"adb -s {WAYDROID_ADB} shell input swipe 300 700 300 100", shell=True)
-                        
-                        # Traer App Tuya (YA ESTABA ABIERTA - NO RE-LANZAR)
-                        # print("📱 Enfocando Tuya Smart...")
-                        # subprocess.run(f"adb -s {WAYDROID_ADB} shell monkey -p com.tuya.smart -c android.intent.category.LAUNCHER 1", shell=True, stdout=subprocess.DEVNULL)
-
-                        # 3. Intentar Atender (Clicks PRECISOS)
-                        print("⏳ Esperando UI (3s)...")
-                        time.sleep(3)
-                        
-                        success = True 
-                        
-                        # RE-INSERTAMOS INTENTOS DE CLICK (Para que veas al fantasma actuar)
-                        for i in range(3):
-                            print(f"👉 Intento #{i+1}...")
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell input tap 325 157", shell=True)
-                            time.sleep(0.5)
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent 5", shell=True)
-                            time.sleep(1.5)
-                        
-                        if success:
-
-                            # Esperar a que conecte audio/video (3s visible Waydroid)
-                            print("⏳ Estabilizando llamada (3s)...")
-                            time.sleep(3)
+                            # Iniciar PTT (Swipe largo para mantener presionado)
+                            ptt_process = subprocess.Popen(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "swipe", "228", "643", "228", "643", "10000"])
+                            time.sleep(1.5) # Margen para que Android abra el micro
                             
-                            # MINIMIZAR WAYDROID (Para ver Fina)
-                            print("📉 Dockeando Waydroid (KDocker)...")
-                            # Usamos kdocker sobre la clase 'weston' para volver al tray
-                            subprocess.run("xdotool search --class 'weston' | head -n1 | xargs -I {} kdocker -w {} -q -i /usr/share/icons/breeze-dark/status/32/rotation-locked-portrait.svg &", shell=True)
-                            
-                            # 4. Secuencia de Audio y Comunicación (Hablar)
-                            print("🎙️ Iniciando comunicación con el visitante...")
-                            
-                            # A. PTT (Presionar para hablar)
-                            ptt_process = None
-                            waydroid_id = None
+                            # Enrutamiento de audio (Intento rápido)
                             try:
-                                # Iniciar PTT (Swipe largo para mantener presionado)
-                                ptt_process = subprocess.Popen(["adb", "-s", WAYDROID_ADB, "shell", "input", "swipe", "228", "643", "228", "643", "10000"])
-                                time.sleep(1.5) # Margen para que Android abra el micro
-                                
-                                # Enrutamiento de audio (Intento rápido)
-                                try:
-                                    virtual_source = subprocess.check_output("pactl list short sources | grep 'FinaVoice.monitor' | cut -f1", shell=True).decode().strip()
-                                    output = subprocess.check_output("pactl list source-outputs", shell=True).decode()
-                                    if "Waydroid" in output:
-                                        blocks = output.split("Salida de fuente #")
-                                        for b in blocks:
-                                            if "Waydroid" in b:
-                                                waydroid_id = b.split("\n")[0].strip()
-                                                break
-                                    if waydroid_id and virtual_source:
-                                        subprocess.run(f"pactl move-source-output {waydroid_id} {virtual_source}", shell=True)
-                                except: pass
-                            except Exception as e:
-                                print(f"⚠️ Error iniciando PTT: {e}")
+                                virtual_source = subprocess.check_output("pactl list short sources | grep 'FinaVoice.monitor' | cut -f1", shell=True).decode().strip()
+                                output = subprocess.check_output("pactl list source-outputs", shell=True).decode()
+                                if "Waydroid" in output:
+                                    blocks = output.split("Salida de fuente #")
+                                    for b in blocks:
+                                        if "Waydroid" in b:
+                                            waydroid_id = b.split("\n")[0].strip()
+                                            break
+                                if waydroid_id and virtual_source:
+                                    subprocess.run(f"pactl move-source-output {waydroid_id} {virtual_source}", shell=True)
+                            except Exception: pass
+                        except Exception as e:
+                            logger.warning(f"⚠️ Error iniciando PTT: {e}")
 
-                            # B. HABLAR (La frase de Fina)
-                            h = int(time.strftime("%H"))
-                            saludo = "buenos días" if 6 <= h < 12 else "buenas tardes" if 12 <= h < 20 else "buenas noches"
-                            mensaje = f"{saludo}. En unos segundos serás atendido. Gracias."
-                            
-                            print(f"🗣️ Fina: '{mensaje}'")
-                            
-                            # Notificar visualmente a la UI
-                            try:
-                                import requests
-                                requests.post("http://127.0.0.1:18000/api/state", json={"status": "speaking", "process": mensaje}, timeout=0.2)
-                            except: pass
+                        # B. HABLAR (La frase de Fina)
+                        h = int(time.strftime("%H"))
+                        saludo = "buenos días" if 6 <= h < 12 else "buenas tardes" if 12 <= h < 20 else "buenas noches"
+                        mensaje = f"{saludo}. En unos segundos serás atendido. Gracias."
+                        
+                        logger.info(f"🗣️ Fina: '{mensaje}'")
+                        
+                        api_notify("state", {"status": "speaking", "process": mensaje})
 
-                            # TTS Real
-                            os.environ["PULSE_SINK"] = VIRTUAL_SINK_NAME
-                            try: speak(mensaje, None)
-                            except: pass
-                            finally:
-                                if "PULSE_SINK" in os.environ: del os.environ["PULSE_SINK"]
-                            
-                            # C. FINALIZAR VOZ
-                            time.sleep(1.0) # Buffer
-                            if ptt_process: ptt_process.terminate()
-                            print("👆 PTT Soltado.")
+                        # TTS Real
+                        os.environ["PULSE_SINK"] = VIRTUAL_SINK_NAME
+                        try: speak_local(mensaje)
+                        except Exception: pass
+                        finally:
+                            os.environ.pop("PULSE_SINK", None)
+                        
+                        # C. FINALIZAR VOZ
+                        time.sleep(1.0) # Buffer
+                        if ptt_process: ptt_process.terminate()
+                        logger.info("👆 PTT Soltado.")
 
-                            # 8. ESPERAR Y COLGAR
-                            print("⏳ Esperando 20s para estabilizar y luego colgar...")
-                            time.sleep(20)
+                        # 8. ESPERAR Y COLGAR
+                        logger.info("⏳ Esperando 20s para estabilizar y luego colgar...")
+                        time.sleep(20)
 
-                            # 6. COLGAR Y CERRAR (SIEMPRE se ejecuta)
-                            print("🔴 Finalizando llamada...")
-                            # 1. Toque en el centro para despertar los controles de Tuya
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell input tap 300 400", shell=True)
-                            time.sleep(0.5)
-                            # 2. Toque en el botón ROJO de colgar (Abajo a la derecha)
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell input tap 360 760", shell=True)
-                            
-                            print("🧹 Limpiando Waydroid (Kill App + Home)...")
-                            time.sleep(1) # Pequeña pausa para que procese el colgado
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell am force-stop com.tuya.smart", shell=True, stderr=subprocess.DEVNULL)
-                            subprocess.run(f"adb -s {WAYDROID_ADB} shell input keyevent KEYCODE_HOME", shell=True, stderr=subprocess.DEVNULL)
-                            
-                            # Notificar Cierre a Fina (API + Stdout)
-                            print("📡 Notificando colgado a la interfaz...")
-                            try:
-                                import requests
-                                requests.post("http://127.0.0.1:18000/api/command", json={"name": "doorbell-hangup", "payload": {}}, timeout=0.5)
-                            except: pass
-                            
-                            print(json.dumps({"type": "event", "name": "doorbell-hangup", "payload": {}}), flush=True)
-                            print("✅ Ciclo de timbre completado exitosamente.")
-                            
-                            # Cooldown para no repetir
-                            last_seen = time.time()
-                            print("⏳ Iniciando cooldown de 60s...")
-                            time.sleep(60)
+                        # 6. COLGAR Y CERRAR (SIEMPRE se ejecuta)
+                        logger.info("🔴 Finalizando llamada...")
+                        # 1. Toque en el centro para despertar los controles de Tuya
+                        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "tap", "300", "400"], capture_output=True) # type: ignore
+                        time.sleep(0.5)
+                        # 2. Toque en el botón ROJO de colgar (Abajo a la derecha)
+                        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "tap", "360", "760"], capture_output=True) # type: ignore
+                        
+                        logger.info("🧹 Limpiando Waydroid (Kill App + Home)...")
+                        time.sleep(1) # Pequeña pausa para que procese el colgado
+                        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "am", "force-stop", "com.tuya.smart"], capture_output=True) # type: ignore
+                        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "keyevent", "KEYCODE_HOME"], capture_output=True) # type: ignore
+                        
+                        # Notificar Cierre a Fina (API + Stdout)
+                        logger.info("📡 Notificando colgado a la interfaz...")
+                        api_notify("command", {"name": "doorbell-hangup", "payload": {}})
+                        print(json.dumps({"type": "event", "name": "doorbell-hangup", "payload": {}}), flush=True)
+                        logger.info("✅ Ciclo de timbre completado exitosamente.")
+                        
+                        # Cooldown para no repetir
+                        last_trigger = time.time()
+                        logger.info("⏳ Iniciando cooldown de 60s...")
+                        time.sleep(60)
 
                     else:
-                        print("⏳ Ignorando (Cooldown).")
+                        logger.info("⏳ Ignorando (Cooldown).")
                     
                     was_online = True
             
             else:
                 # OFFLINE DETECTADO
                 # LÓGICA ANTI-REBOTE: Requiere 3 fallos consecutivos
-                consecutive_failures += 1
-                if consecutive_failures >= 3:
+                failures += 1
+                if failures >= 3:
                     if was_online:
-                        print("\n💤 Timbre desconectado (Confirmado).")
-                        was_online = False
-                else:
-                    pass
+                        logger.info("💤 Timbre desconectado (Confirmado).")
+                    was_online = False
             
             time.sleep(CHECK_INTERVAL)
             
         except Exception as e:
-            print(f"❌ Error en bucle principal: {e}")
+            logger.error(f"❌ Error en monitor: {e}")
             time.sleep(5)
 
 if __name__ == "__main__":
-    monitor_loop()
+    try:
+        monitor_loop()
+    except KeyboardInterrupt:
+        logger.info("⏹ Monitoreo detenido.")
+    except Exception as fatal:
+        logger.error(f"💥 Fatal: {fatal}")
+        sys.exit(1)

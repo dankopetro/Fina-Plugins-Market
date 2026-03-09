@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+import asyncio
+import sys
+import os
+import argparse
+
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+try:
+    from remote_helper import send_command # type: ignore
+except ImportError:
+    from .remote_helper import send_command # type: ignore
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Silenciar - Deco Telecentro")
+    parser.add_argument("--ip", required=True, help="IP del Decodificador")
+    args = parser.parse_args()
+    try:
+        asyncio.run(send_command(args.ip, "key", "VOLUME_MUTE"))
+    except KeyboardInterrupt:
+        pass
+    except Exception as e:
+        print(f"✗ Error: {e}")
+        sys.exit(1)
