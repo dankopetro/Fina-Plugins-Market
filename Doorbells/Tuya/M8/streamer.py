@@ -17,8 +17,8 @@ def get_waydroid_ip() -> str:
     try:
         # Usamos check_output para capturar salida de forma segura
         status_out: str = subprocess.check_output(["waydroid", "status"], text=True, timeout=5) # type: ignore
-        # Regex más permisiva para cualquier IP privada
-        ip_match = re.search(r"IP address:\s+((?:192\.168|172\.[1-3][0-9]|10)\.\d+\.\d+\.\d+)", status_out)
+        # Regex corregida para detectar IPs de 4 segmentos en redes privadas
+        ip_match = re.search(r"IP address:\s+((?:192\.168|172\.[1-3][0-9])\.\d+\.\d+|10\.\d+\.\d+\.\d+)", status_out)
         if ip_match:
             return f"{ip_match.group(1)}:5555"
     except Exception:

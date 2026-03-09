@@ -97,10 +97,33 @@ def find_project_root() -> Optional[str]:
             return str(parent)
     return None
 
-def load_ac_config() -> Tuple[str, int]:
-    """Carga IP e ID del AC desde settings.json con fallbacks dinámicos"""
+async def discover_ac_id(ip: str) -> int:
+    """Busca el ID de un dispositivo Midea/Surrey de forma dinámica"""
+    from msmart.discover import Discover # type: ignore
+    logger.info(f"🔍 Buscando ID para el aire en {ip}...")
+    try:
+        # 1. Intento por broadcast (rápido)
+        devices = await Discover.discover()
+        for d in devices:
+            if d.ip == ip:
+                logger.info(f"✅ ID encontrado vía broadcast: {d.device_id}")
+                return int(d.device_id)
+        
+        # 2. Si no aparece, el msmart-ng suele requerir el ID para hablar.
+        # No hay un método fácil de "info" directa sin ID en v3, 
+        # pero podemos intentar un descubrimiento dirigido si la lib lo soporta
+        # o simplemente reportar que se necesita el ID.
+    except Exception as e:
+        logger.warning(f"Error en autodescubrimiento: {e}")
+    return 0
+
+async def load_ac_config() -> Tuple[str, int]:
+    """Carga IP e ID del AC desde settings.json con autodescubrimiento de respaldo"""
     config_dir: str = get_config_dir()
     proj_root: Optional[str] = find_project_root()
+    
+    ip: str = ""
+    device_id: int = 0
     
     candidates: List[Optional[str]] = [
         os.path.join(config_dir, "settings.json"),
@@ -115,15 +138,18 @@ def load_ac_config() -> Tuple[str, int]:
                     apis: Dict[str, Any] = data.get("apis", {})
                     ac_data: Dict[str, Any] = data.get("ac", {})
                     
-                    ip: str = str(apis.get("AC_IP", ac_data.get("ip", "")))
-                    device_id: int = int(apis.get("AC_ID", ac_data.get("device_id", 0)))
+                    ip = str(apis.get("AC_IP", ac_data.get("ip", "")))
+                    device_id = int(apis.get("AC_ID", ac_data.get("device_id", 0)))
                     
                     if ip:
+                        # Si tenemos IP pero no ID, intentamos descubrirlo una vez
+                        if device_id == 0:
+                            device_id = await discover_ac_id(ip)
                         return ip, device_id
             except Exception as e:
                 logger.warning(f"Error leyendo configuración en {path}: {e}")
                 
-    return "", 0
+    return ip, device_id
 
 def send_udp_event(event_name: str, payload: Any) -> None:
     """Envía un evento UDP al Brain de Fina de forma segura"""
@@ -155,7 +181,7 @@ async def control_aire() -> None:
     args = parser.parse_args()
 
     lang: str = args.lang
-    ip_config, id_config = load_ac_config()
+    ip_config, id_config = await load_ac_config()
     target_ip: str = cast(str, args.ip) if args.ip else ip_config
 
     def get_i18n(key: str, default: str) -> str:
@@ -212,27 +238,34 @@ async def control_aire() -> None:
             mode_names: Dict[int, str] = {1: "Auto", 2: "Cool", 3: "Dry", 4: "Heat", 5: "Fan"}
             modo_actual: str = mode_names.get(int(device.operational_mode), "Desconocido") # type: ignore
             
-            # --- MEDICIÓN DE ENERGÍA ---
+            # --- MEDICIÓN DE ENERGÍA (RE-IMPLEMENTADA POR CLAUDIO) ---
             watts_val: float = 0.0
             total_kwh_val: float = 0.0
+            
             try:
-                # 1. Energía Acumulada
-                resp_energy: List[Any] = await device._send_commands_get_responses([EnergyHackCommand(0x44)]) # type: ignore
-                if resp_energy:
-                    for r in resp_energy:
-                        if hasattr(r, 'payload') and len(r.payload) > 7 and r.payload[3] == 0x44:
-                            d: bytearray = r.payload
-                            total_kwh_val = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
-                # 2. Potencia Instantánea (Solo si está encendido)
-                if device.power_state: # type: ignore
-                    resp_power: List[Any] = await device._send_commands_get_responses([EnergyHackCommand(0x43)]) # type: ignore
-                    if resp_power:
-                        for r in resp_power:
-                            if hasattr(r, 'payload') and len(r.payload) > 16 and r.payload[3] == 0x43:
-                                raw_w: int = int(r.payload[16])
+                # 1. Intentar obtener TODO (Probamos 0x12 para energía y 0x44 para watts)
+                for sub_cmd in [0x12, 0x44, 0x43]:
+                    resps = await device._send_commands_get_responses([EnergyHackCommand(sub_cmd)]) # type: ignore
+                    if resps:
+                        for r in resps:
+                            if not hasattr(r, 'payload') or len(r.payload) < 8:
+                                continue
+                            
+                            p: bytearray = r.payload
+                            # print(f"DEBUG: Cmd {hex(sub_cmd)} -> Resp Payload: {p.hex()}")
+                            
+                            # Si la trama es 0x44 (Contiene los kWh acumulados)
+                            if p[3] == 0x44:
+                                total_kwh_val = (10000 * decode_bcd(p[4]) + 100 * decode_bcd(p[5]) + 1 * decode_bcd(p[6]) + 0.01 * decode_bcd(p[7]))
+                                # print(f"DEBUG: kWh Detectado: {total_kwh_val}")
+                            
+                            # Si la trama es 0x43 (Contiene los Watts de consumo)
+                            elif p[3] == 0x43 and len(p) > 16:
+                                raw_w = int(p[16])
                                 watts_val = float(raw_w * 10)
+                                # print(f"DEBUG: Watts Detectados: {watts_val}")
             except Exception as e:
-                logger.debug(f"Error en EnergyHack: {e}")
+                logger.debug(f"Error en EnergyHack Pro: {e}")
 
             # --- CÁLCULO DE CONSUMO PERSONALIZADO Ergen ---
             calc_tot, calc_month = process_energy_stats(total_kwh_val)
