@@ -119,19 +119,45 @@ def load_channels() -> Dict[str, str]:
     return channels
 
 def get_channel_number(query: str, channel_map: Dict[str, str]) -> Optional[str]:
-    """Resuelve nombre o número de canal desde el mapa"""
+    """Resuelve nombre o número de canal desde el mapa con motor fonético y difuso"""
     # Si ya es un número (con punto o guión incluidos), usarlo directo
     if re.match(r'^[\d\.\-]+$', query):
         return query
 
     q: str = query.lower().replace(" ", "")
+    
+    # Motor fonético para arreglar errores del micrófono (OCR)
+    phonetic_map = {
+        "iespien": "espn", "yespien": "espn", "ispen": "espn", "espen": "espn",
+        "iestien": "espn", "iepien": "espn", "eiespien": "espn",
+        "focs": "fox", "foks": "fox", 
+        "teise": "tyc", "teice": "tyc", "teis": "tyc",
+        "cartun": "cartoon", "disnei": "disney", 
+        "ei yan i": "a&e", "eyane": "a&e", "ayana": "a&e",
+        "achiyo": "hbo", "achebeo": "hbo", "achebeó": "hbo",
+        "espor": "sports", "esports": "sports"
+    }
+    
+    for k, v in phonetic_map.items():
+        if k in q:
+            q = q.replace(k, v)
+
     # Búsqueda exacta primero
     if q in channel_map:
         return channel_map[q]
+        
     # Búsqueda por contención
     for name, number in channel_map.items():
         if q in name or name in q:
             return number
+
+    # Fallback a búsqueda difusa
+    import difflib
+    matches = difflib.get_close_matches(q, channel_map.keys(), n=1, cutoff=0.6)
+    if matches:
+        matched_key = matches[0]
+        print(f"🎯 Mapeado fonético/difuso '{query}' -> {matched_key} -> {channel_map[matched_key]}")
+        return channel_map[matched_key]
 
     return None
 

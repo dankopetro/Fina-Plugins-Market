@@ -146,7 +146,7 @@ async def main() -> None:
             "teise": "tyc", "teice": "tyc", "teis": "tyc",
             "cartun": "cartoon", "disnei": "disney", 
             "ei yan i": "a&e", "eyane": "a&e", "ayana": "a&e",
-            "achiyo": "hbo", "achebeo": "hbo",
+            "achiyo": "hbo", "achebeo": "hbo", "achebeó": "hbo",
             "espor": "sports", "esports": "sports"
         }
         for k, v in phonetic_map.items():
