@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 
-# Agregar el directorio actual al path para importar remote_helper
+# Agregar el directorio actual al path para importar deco_remote_helper
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    from remote_helper import send_command # type: ignore
+    from deco_remote_helper import send_command # type: ignore
 except ImportError:
     # Fallback si falla el import relativo
-    from .remote_helper import send_command # type: ignore
+    from .deco_remote_helper import send_command # type: ignore
 
 def find_project_root() -> Optional[str]:
     """Busca la raíz del proyecto basándose en marcadores conocidos"""

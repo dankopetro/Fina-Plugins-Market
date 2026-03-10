@@ -23,7 +23,7 @@ except ImportError:
     logger.error("❌ Librería 'androidtvremote2' no instalada.")
     sys.exit(1)
 
-# Rutas de certificados en la carpeta del script (donde los busca remote_helper)
+# Rutas de certificados en la carpeta del script (donde los busca deco_remote_helper)
 BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
 CERT_PATH: str = os.path.join(BASE_DIR, "cert.pem")
 KEY_PATH: str = os.path.join(BASE_DIR, "key.pem")

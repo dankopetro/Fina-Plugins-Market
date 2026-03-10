@@ -16,13 +16,13 @@ from typing import Optional, Any
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger("tv_set_volume")
 
-# Agregar el directorio actual al path para importar remote_helper
+# Agregar el directorio actual al path para importar deco_remote_helper
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    from remote_helper import send_command # type: ignore
+    from deco_remote_helper import send_command # type: ignore
 except ImportError:
     # Fallback si falla el import relativo
-    from .remote_helper import send_command # type: ignore
+    from .deco_remote_helper import send_command # type: ignore
 
 async def set_volume(ip: str, volume: int) -> None:
     """Intenta ajustar el volumen simulando pulsaciones múltiples"""

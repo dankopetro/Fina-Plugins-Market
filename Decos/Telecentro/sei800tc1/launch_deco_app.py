@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-launch_app.py - Lanza una aplicación instalada en un Decodificador Android TV vía ADB.
+launch_deco_app.py - Lanza una aplicación instalada en un Decodificador Android TV vía ADB.
 """
 import subprocess
 import argparse
@@ -11,9 +11,9 @@ from typing import List, Any
 
 # Configuración de logging básica
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger("launch_app")
+logger = logging.getLogger("launch_deco_app")
 
-def launch_application(ip: str, package: str) -> None:
+def launch_deco_application(ip: str, package: str) -> None:
     """Intenta lanzar una app usando monkey y am start como fallback"""
     logger.info(f"🚀 Lanzando '{package}' en dispositivo ({ip})...")
     
@@ -55,7 +55,7 @@ def main() -> None:
     parser.add_argument("--package", required=True, help="ID del paquete (ej: com.netflix.ninja)")
     args = parser.parse_args()
     
-    launch_application(args.ip, args.package)
+    launch_deco_application(args.ip, args.package)
 
 if __name__ == "__main__":
     main()

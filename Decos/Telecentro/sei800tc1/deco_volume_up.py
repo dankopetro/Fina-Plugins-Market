@@ -6,9 +6,9 @@ import argparse
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    from remote_helper import send_command # type: ignore
+    from deco_remote_helper import send_command # type: ignore
 except ImportError:
-    from .remote_helper import send_command # type: ignore
+    from .deco_remote_helper import send_command # type: ignore
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Subir Volumen - Deco Telecentro")

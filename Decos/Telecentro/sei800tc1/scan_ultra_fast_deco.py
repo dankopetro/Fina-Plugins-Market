@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-scan_ultra_fast.py — Descubrimiento automático de canales para Deco Android TV.
+scan_ultra_fast_deco.py — Descubrimiento automático de canales para Deco Android TV.
 
 Flujo completo sin intervención del usuario:
   1. Detecta el proveedor del deco (mDNS/Chromecast identity)

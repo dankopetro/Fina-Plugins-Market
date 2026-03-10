@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 tv_power.py - Alterna el estado de energía de un Decodificador Android TV (SEI800TC1).
-Utiliza 'androidtvremote2' vía remote_helper y opcionalmente PyChromecast para despertar vía HDMI-CEC.
+Utiliza 'androidtvremote2' vía deco_remote_helper y opcionalmente PyChromecast para despertar vía HDMI-CEC.
 """
 import asyncio
 import sys
@@ -21,13 +21,13 @@ try:
 except ImportError:
     HAS_CHROMECAST = False
 
-# Agregar el directorio actual al path para importar remote_helper
+# Agregar el directorio actual al path para importar deco_remote_helper
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 try:
-    from remote_helper import send_command, check_if_on # type: ignore
+    from deco_remote_helper import send_command, check_if_on # type: ignore
 except ImportError:
     # Fallback si falla el import relativo
-    from .remote_helper import send_command, check_if_on # type: ignore
+    from .deco_remote_helper import send_command, check_if_on # type: ignore
 
 async def wake_via_cast(ip: str) -> None:
     """
