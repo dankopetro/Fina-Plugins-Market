@@ -4,6 +4,6 @@ author: "Fina Team"
 description: "Control de Decodificador Telecentro SEI800TC1 via ADB"
 enabled: true
 priority: 55
-main_file: "tv.py"
-main_class: "TVPlugin"
+main_file: "deco.py"
+main_class: "DecoPlugin"
 type: "sei800tc1"
