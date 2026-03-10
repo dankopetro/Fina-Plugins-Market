@@ -14,12 +14,40 @@ from typing import Optional, Any, List, Dict, Tuple
 # Configuración Base
 CHECK_INTERVAL: float = 3.0
 VIRTUAL_SINK_NAME: str = "FinaVoice"
-# IP por defecto de Waydroid (común), pero se puede sobreescrito por config
-WAYDROID_ADB_DEFAULT: str = "127.0.0.1:5555"
-
-# Configurar logging profesional
+# Configurar logging profesional INMEDIATO
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
 logger = logging.getLogger("DoorbellMonitor")
+
+WAYDROID_ADB_DEFAULT: str = "192.168.240.112:5555" # Placeholder
+
+def get_waydroid_ip() -> str:
+    """Detecta dinámicamente la IP de Waydroid para universalidad"""
+    global WAYDROID_ADB_DEFAULT
+    try:
+        # 1. Intentar por comando oficial
+        res = subprocess.run(["waydroid", "status"], capture_output=True, text=True, timeout=2)
+        match = re.search(r"IP:\s+([\d\.]+)", res.stdout)
+        if match: 
+            ip = match.group(1)
+            logger.info(f"✨ IP de Waydroid detectada (status): {ip}")
+            WAYDROID_ADB_DEFAULT = f"{ip}:5555"
+            return WAYDROID_ADB_DEFAULT
+        
+        # 2. Intentar por interfaz de red bridge
+        res = subprocess.run(["ip", "-4", "addr", "show", "waydroid0"], capture_output=True, text=True, timeout=2)
+        match = re.search(r"inet\s+([\d\.]+)", res.stdout)
+        if match:
+            # El bridge suele ser .1 y el container .112 o correlativo
+            octetos = match.group(1).split(".")
+            if len(octetos) >= 3:
+                base = f"{octetos[0]}.{octetos[1]}.{octetos[2]}"
+                ip = f"{base}.112"
+                logger.info(f"🌐 IP de Waydroid estimada (bridge): {ip}")
+                WAYDROID_ADB_DEFAULT = f"{ip}:5555"
+                return WAYDROID_ADB_DEFAULT
+    except Exception: pass
+    logger.warning(f"⚠️ No se pudo detectar IP dinámica. Usando {WAYDROID_ADB_DEFAULT}")
+    return WAYDROID_ADB_DEFAULT
 
 def get_config_dir() -> str:
     """Obtiene el directorio de configuración de Fina siguiendo estándares XDG"""
@@ -143,11 +171,26 @@ def speak_local(text: str) -> None:
         print(f"(LOG) {text}")
 
 def ensure_infrastructure() -> bool:
-    """Asegura que Waydroid y Weston estén operativos"""
+    """Asegura que Waydroid y Weston estén operativos de forma robusta"""
+    get_waydroid_ip() # Refrescamos IP por si cambió o se activó tarde
     try:
-        check = subprocess.run(["waydroid", "status"], capture_output=True, text=True) # type: ignore
-        if "RUNNING" not in check.stdout:
-            logger.info("🚀 Iniciando sistema Android oculto...")
+        # 1. Chequeo de proceso vivo
+        check_weston = subprocess.run("pgrep -f 'weston.*config'", shell=True, capture_output=True)
+        
+        # 2. Chequeo de ADB vivo (salud real del sistema)
+        check_adb = subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "getprop", "sys.boot_completed"], capture_output=True, timeout=3)
+        adb_alive = (check_adb.returncode == 0)
+
+        if check_weston.returncode != 0 or not adb_alive:
+            if check_weston.returncode == 0 and not adb_alive:
+                logger.warning("👻 Weston vivo pero ADB muerto (fantasma). Reiniciando...")
+            else:
+                logger.info("🚀 [INFRA] No se detectó Weston activo. Iniciando sistema Android...")
+            
+            # Limpieza proactiva
+            subprocess.run("waydroid session stop", shell=True, capture_output=True, timeout=5)
+            subprocess.run("pkill -9 -f weston", shell=True, capture_output=True)
+            
             script_path: Optional[str] = find_script("scripts/start_hidden_system.sh")
             if not script_path:
                 logger.error("❌ No se encontró script de arranque.")
@@ -186,8 +229,17 @@ def ensure_infrastructure() -> bool:
                     stdout=subprocess.DEVNULL, 
                     stderr=subprocess.DEVNULL, 
                     start_new_session=True,
-                    cwd=proj_root
                 )
+        else:
+            # Si ya está vivo, dar una señal de vida (activar ventana con swipe despertador y volver)
+            logger.info("✅ Infraestructura detectada activa. Re-activando visibilidad con despertar visual (ADB)...")
+            # xdotool trae al frente, ADB hace el swipe pequeño (100px)
+            subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && { xdotool windowmap \"$WID\" windowactivate \"$WID\" windowraise \"$WID\"; }", shell=True)
+            time.sleep(1.0) # Esperar a que Weston tome foco
+            subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "swipe", "300", "410", "200", "410", "300"], capture_output=True)
+            time.sleep(2.0)
+            subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && xdotool windowunmap \"$WID\"", shell=True)
+            
         return True
     except Exception as e:
         logger.error(f"⚠️ Error infraestructura: {e}")
@@ -205,17 +257,22 @@ def api_notify(endpoint: str, data: Dict[str, Any]) -> None:
 
 def monitor_loop() -> None:
     """Bucle principal de monitoreo reactivo"""
+    logger.info("🚀 [AUTO-START] Iniciando vigilancia del Timbre M8...")
+    
+    logger.info("⏳ Esperando estabilización de sistema (5s)...")
+    time.sleep(5)
+
+    # 1. Asegurar Infraestructura DE INMEDIATO
+    logger.info("🏗️ Verificando sistema Android (Weston+Waydroid)...")
+    if not ensure_infrastructure():
+        logger.error("❌ No se pudo inicializar la infraestructura básica.")
+        # No salimos, reintentaremos en el loop si es necesario
+
     doorbell_ip, configured = load_doorbell_config()
     if not configured:
-        logger.info("ℹ️ Monitoreo cancelado: Timbre no configurado.")
-        return
-
-    logger.info("⏳ Esperando estabilización de sistema (10s)...")
-    time.sleep(10)
-
-    if not ensure_infrastructure():
-        logger.error("❌ Fallo crítico en infraestructura Android.")
-        return
+        logger.warning("⚠️ Timbre no configurado en settings.json. Vigilancia pasiva.")
+        # En modo no configurado, al menos la infra ya quedó lista por si se usa el botón de prueba
+        while True: time.sleep(10) 
 
     setup_virtual_audio()
     logger.info(f"🕵️ Vigilancia armada en {doorbell_ip}")
@@ -236,6 +293,12 @@ def monitor_loop() -> None:
 
             current_online: bool = is_device_online(doorbell_ip)
             
+            if not current_online and was_online:
+                logger.warning(f"📴 Timbre en {doorbell_ip} se ha desconectado.")
+            
+            if not current_online and failures % 10 == 0:
+                logger.info(f"⏳ Vigilancia activa... {doorbell_ip} sigue offline (Check #{failures})")
+
             if current_online:
                 failures = 0
                 now: float = time.time()
@@ -250,9 +313,14 @@ def monitor_loop() -> None:
 
                         # Atender vía Waydroid
                         subprocess.run(["adb", "connect", WAYDROID_ADB_DEFAULT], capture_output=True, timeout=5) # type: ignore
-                        # Activar Ventana
-                        subprocess.run("pkill -f kdocker", shell=True) # type: ignore
-                        subprocess.run("xdotool search --class 'weston' windowmap windowactivate", shell=True) # type: ignore
+                        # 🟢 MOSTRAR (3 Segundos) para identificación visual + Swipe largo (despertador)
+                        logger.info("🖥️ Trayendo stream al frente (3s) con despertar visual...")
+                        # Unificamos todo en una secuencia para precisión total (ADB Swipe)
+                        subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && { xdotool windowmap \"$WID\" windowactivate \"$WID\" windowraise \"$WID\"; }", shell=True)
+                        time.sleep(1.0)
+                        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "swipe", "300", "410", "200", "410", "300"], capture_output=True)
+                        time.sleep(2.0)
+                        subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && xdotool windowunmap \"$WID\"", shell=True)
                         
                         # Simular atención
                         time.sleep(2)
@@ -357,14 +425,26 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--trigger":
         logger.info("⚡ [TRIGGER] Activación manual solicitada desde la UI.")
-        ensure_infrastructure()
-        # Notificar a la UI que estamos conectando
-        api_notify("state", {"process": "Iniciando Stream Manual..."})
-        # El streamer se iniciará automáticamente en monitor_loop si no está corriendo,
-        # o podemos lanzarlo aquí para ganar velocidad.
-        str_path = find_script("streamer.py")
-        if str_path:
-            subprocess.Popen([sys.executable, str_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        
+        # Solo lanzar infra si realmente no existe (Check flexible)
+        check_proc = subprocess.run("pgrep -f 'weston.*config'", shell=True, capture_output=True)
+        if check_proc.returncode != 0:
+            logger.info("⚠️ Infraestructura no detectada. Activando proactivamente...")
+            ensure_infrastructure()
+        
+        # 🟢 TRAER AL FRENTE (3 Segundos) + Swipe largo (despierta el stream)
+        logger.info("🖥️ Mostrando stream al frente (3s) con despertar visual...")
+        # 🟢 TRAER AL FRENTE (3 Segundos) + Swipe pequeño vía ADB
+        logger.info("🖥️ Mostrando stream al frente (3s) con despertar visual (ADB)...")
+        subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && { xdotool windowmap \"$WID\" windowactivate \"$WID\" windowraise \"$WID\"; }", shell=True) 
+        time.sleep(1.0)
+        subprocess.run(["adb", "-s", WAYDROID_ADB_DEFAULT, "shell", "input", "swipe", "300", "410", "200", "410", "300"], capture_output=True)
+        time.sleep(2.0)
+        subprocess.run("WID=$(xdotool search --class 'weston' | head -n 1); [ -n \"$WID\" ] && xdotool windowunmap \"$WID\"", shell=True)
+        
+        # Notificar a la UI
+        api_notify("state", {"process": "Stream en curso...".upper()})
+        
         sys.exit(0)
 
     try:
