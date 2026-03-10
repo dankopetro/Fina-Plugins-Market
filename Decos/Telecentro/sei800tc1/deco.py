@@ -11,12 +11,12 @@ from typing import Optional, Dict, Any, List
 # ==================================================================================================
 # CLASE PRINCIPAL DEL PLUGIN (Telecentro SEI800TC1 / Android TV)
 # ==================================================================================================
-class TVPlugin:
+class DecoPlugin:
     """Plugin para control de Televisores y Decodificadores Android TV vía ADB"""
     
     def __init__(self, context: Any) -> None:
         self.context: Any = context
-        self.logger: logging.Logger = logging.getLogger("TVPlugin")
+        self.logger: logging.Logger = logging.getLogger("DecoPlugin")
         self.plugin_dir: str = os.path.dirname(os.path.abspath(__file__))
         self.settings: Dict[str, Any] = self._load_settings()
         self.logger.info("📺 TV Plugin (Android TV/Deco) Inicializado")
@@ -215,7 +215,7 @@ class TVPlugin:
                 return tv
 
         # 2. Resolución por estado activo
-        if intent != "tv_on":
+        if intent != "deco_on":
             active_ips: List[str] = self._get_active_ips()
             candidates: List[Dict[str, Any]] = [tv for tv in tvs_list if tv.get("ip") in active_ips]
             if len(candidates) == 1:
@@ -231,15 +231,15 @@ class TVPlugin:
     def get_intents(self) -> Dict[str, List[str]]:
         """Define los disparadores de lenguaje natural"""
         return {
-            "tv_on": ["prender la tele", "enciende la tv", "prender tv", "activar televisor"],
-            "tv_off": ["apagar la tele", "apaga la tv", "apagar tv", "apagar televisor"],
-            "tv_volume_up": ["sube el volumen", "subir volumen", "más volumen"],
-            "tv_volume_down": ["baja el volumen", "bajar volumen", "menos volumen"],
-            "tv_mute": ["silenciar tv", "silencio tv", "mute tv"],
-            "tv_set_volume": ["pon el volumen en", "poner volumen a", "volumen a"],
-            "tv_set_channel": ["pon el canal", "cambiar al canal", "ver el canal"],
-            "tv_list_apps": ["qué aplicaciones tiene", "lista de apps"],
-            "tv_set_input": ["pone el deco", "cambia a hdmi", "ver aire"]
+            "deco_on": ["prender la tele", "enciende la tv", "prender tv", "activar televisor"],
+            "deco_off": ["apagar la tele", "apaga la tv", "apagar tv", "apagar televisor"],
+            "deco_volume_up": ["sube el volumen", "subir volumen", "más volumen"],
+            "deco_volume_down": ["baja el volumen", "bajar volumen", "menos volumen"],
+            "deco_mute": ["silenciar tv", "silencio tv", "mute tv"],
+            "deco_set_volume": ["pon el volumen en", "poner volumen a", "volumen a"],
+            "deco_set_deco_channel": ["pon el canal", "cambiar al canal", "ver el canal"],
+            "deco_list_apps": ["qué aplicaciones tiene", "lista de apps"],
+            "deco_set_input": ["pone el deco", "cambia a hdmi", "ver aire"]
         }
 
     def _get_helper_script(self, target_tv: Dict[str, Any], action: str) -> Optional[str]:
@@ -273,24 +273,24 @@ class TVPlugin:
         target_ip: str = str(target.get("ip", ""))
         
         # Mapeo de acciones directas
-        if intent_name == "tv_on":
-            return self._run_script(target, "tv_on", ["--ip", target_ip])
-        elif intent_name == "tv_off":
-            return self._run_script(target, "tv_off", ["--ip", target_ip])
-        elif intent_name == "tv_volume_up":
+        if intent_name == "deco_on":
+            return self._run_script(target, "deco_on", ["--ip", target_ip])
+        elif intent_name == "deco_off":
+            return self._run_script(target, "deco_off", ["--ip", target_ip])
+        elif intent_name == "deco_volume_up":
             subprocess.Popen(["adb", "-s", f"{target_ip}:5555", "shell", "input", "keyevent", "24"]) # type: ignore
             return "Volumen incrementado."
-        elif intent_name == "tv_volume_down":
+        elif intent_name == "deco_volume_down":
             subprocess.Popen(["adb", "-s", f"{target_ip}:5555", "shell", "input", "keyevent", "25"]) # type: ignore
             return "Volumen disminuido."
-        elif intent_name == "tv_mute":
+        elif intent_name == "deco_mute":
             subprocess.Popen(["adb", "-s", f"{target_ip}:5555", "shell", "input", "keyevent", "164"]) # type: ignore
             return "Silenciado."
-        elif intent_name == "tv_set_channel":
+        elif intent_name == "deco_set_deco_channel":
             import re
             match = re.search(r'(?:canal|el)\s+(\w+)', command.lower())
             channel: str = match.group(1) if match else command.split()[-1]
-            return self._run_script(target, "set_channel", ["--ip", target_ip, "--channel", channel])
+            return self._run_script(target, "set_deco_channel", ["--ip", target_ip, "--channel", channel])
         
         return None
 
@@ -304,6 +304,6 @@ class TVPlugin:
         return f"Controlador para {action} no disponible."
 
     # Métodos de compatibilidad con versiones anteriores del plugin
-    def turn_on(self, target_tv: Dict[str, Any]) -> str: return self._run_script(target_tv, "tv_on", ["--ip", str(target_tv.get("ip"))])
-    def turn_off(self, target_tv: Dict[str, Any]) -> str: return self._run_script(target_tv, "tv_off", ["--ip", str(target_tv.get("ip"))])
-    def set_channel(self, target_tv: Dict[str, Any], channel: str) -> str: return self._run_script(target_tv, "set_channel", ["--ip", str(target_tv.get("ip")), "--channel", channel])
+    def turn_on(self, target_tv: Dict[str, Any]) -> str: return self._run_script(target_tv, "deco_on", ["--ip", str(target_tv.get("ip"))])
+    def turn_off(self, target_tv: Dict[str, Any]) -> str: return self._run_script(target_tv, "deco_off", ["--ip", str(target_tv.get("ip"))])
+    def set_deco_channel(self, target_tv: Dict[str, Any], channel: str) -> str: return self._run_script(target_tv, "set_deco_channel", ["--ip", str(target_tv.get("ip")), "--channel", channel])
