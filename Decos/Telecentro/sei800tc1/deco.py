@@ -237,7 +237,7 @@ class DecoPlugin:
             "deco_volume_down": ["baja el volumen", "bajar volumen", "menos volumen"],
             "deco_mute": ["silenciar tv", "silencio tv", "mute tv"],
             "deco_set_volume": ["pon el volumen en", "poner volumen a", "volumen a"],
-            "deco_set_deco_channel": ["pon el canal", "cambiar al canal", "ver el canal"],
+            "deco_set_channel": ["pon el canal", "cambiar al canal", "ver el canal"],
             "deco_list_apps": ["qué aplicaciones tiene", "lista de apps"],
             "deco_set_input": ["pone el deco", "cambia a hdmi", "ver aire"]
         }
@@ -286,7 +286,7 @@ class DecoPlugin:
         elif intent_name == "deco_mute":
             subprocess.Popen(["adb", "-s", f"{target_ip}:5555", "shell", "input", "keyevent", "164"]) # type: ignore
             return "Silenciado."
-        elif intent_name == "deco_set_deco_channel":
+        elif intent_name == "deco_set_channel":
             import re
             match = re.search(r'(?:canal|el)\s+(\w+)', command.lower())
             channel: str = match.group(1) if match else command.split()[-1]
