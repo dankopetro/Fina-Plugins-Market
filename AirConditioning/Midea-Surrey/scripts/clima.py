@@ -10,8 +10,6 @@ import os
 import argparse
 import socket
 import json
-import os
-import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, Tuple
 from msmart.device import AirConditioner as AC # type: ignore
@@ -33,30 +31,6 @@ class EnergyHackCommand(Command):
 def decode_bcd(d: int) -> float:
     """Decodifica un byte en formato BCD (Binary Coded Decimal)"""
     return float(10 * (d >> 4) + (d & 0xF))
-
-def process_energy_stats(raw_total: float) -> Tuple[float, float]:
-    """Calcula el consumo acumulado vs base histórica y mensual."""
-    energy_file = os.path.join(get_config_dir(), "energy_ac.json")
-    now = datetime.datetime.now()
-    stats = {"historic_base": 4960.0, "monthly_base": 5014.32, "last_month_tracked": now.month}
-    
-    if os.path.exists(energy_file):
-        try:
-            with open(energy_file, "r") as f: stats.update(json.load(f))
-        except: pass
-
-    if int(stats["last_month_tracked"]) != now.month:
-        stats["monthly_base"] = float(raw_total)
-        stats["last_month_tracked"] = now.month
-
-    try:
-        with open(energy_file, "w") as f: json.dump(stats, f, indent=4)
-    except: pass
-
-    if raw_total <= 0: return 0.0, 0.0
-    total = float(f"{(float(raw_total) - float(stats['historic_base'])):.2f}")
-    month = float(f"{(float(raw_total) - float(stats['monthly_base'])):.2f}")
-    return max(0.0, total), max(0.0, month)
 # ------------------------------
 
 def get_config_dir() -> str:
@@ -66,18 +40,7 @@ def get_config_dir() -> str:
         return str(Path(xdg_config) / "Fina")
     return str(Path.home() / ".config" / "Fina")
 
-async def discover_ac_id(ip: str) -> int:
-    """Busca el ID de un dispositivo de forma dinámica"""
-    from msmart.discover import Discover
-    try:
-        devices = await Discover.discover(target=ip)
-        for d in devices:
-            if getattr(d, 'ip', None) == ip or getattr(d, 'host', None) == ip:
-                return int(getattr(d, 'id', getattr(d, 'device_id', 0)))
-    except: pass
-    return 0
-
-async def load_ac_config() -> Tuple[str, int]:
+def load_ac_config() -> Tuple[str, int]:
     """Carga IP e ID del AC desde settings.json (lee apis y ac)"""
     config_dir: str = get_config_dir()
     settings_path: str = os.path.join(config_dir, "settings.json")
@@ -86,28 +49,18 @@ async def load_ac_config() -> Tuple[str, int]:
         try:
             with open(settings_path, "r", encoding="utf-8") as f:
                 data: Dict[str, Any] = json.load(f)
-                apis = data.get("apis", {})
-                ac_data = data.get("ac", {})
-                val_ip = apis.get("AC_IP", ac_data.get("ip", ""))
-                val_id = apis.get("AC_ID", ac_data.get("device_id", 0))
-                ip: str = str(val_ip)
-                device_id: int = 0
-                if val_id:
-                    try: device_id = int(val_id)
-                    except: device_id = 0
-                
-                if ip and device_id == 0:
-                    device_id = await discover_ac_id(ip)
-                
-                if ip: return ip, device_id
+                apis: Dict[str, Any] = data.get("apis", {})
+                ac_data: Dict[str, Any] = data.get("ac", {})
+                ip: str = str(apis.get("AC_IP", ac_data.get("ip", "")))
+                device_id: int = int(apis.get("AC_ID", ac_data.get("device_id", 0)))
+                if ip:
+                    return ip, device_id
         except Exception as e:
             print(f"⚠️ Error cargando configuración: {e}")
 
     return "", 0
 
-# Configuración global diferida
-IP: str = ""
-DEVICE_ID: int = 0
+IP, DEVICE_ID = load_ac_config()
 
 def send_event(event_name: str, payload: Any) -> None:
     """Envía un evento UDP al Brain de Fina de forma segura"""
@@ -120,9 +73,9 @@ def send_event(event_name: str, payload: Any) -> None:
                 "payload": payload,
                 "module": "clima"
             })
-            sock.sendto(message.encode(), ("127.0.0.1", 13333))
+            sock.sendto(message.encode(), ("127.0.0.1", 5555))
     except Exception as e:
-        pass
+        print(f"Error enviando evento UDP: {e}")
 
 async def control_aire() -> None:
     """Manejador principal de control de aire acondicionado Midea/Surrey"""
@@ -150,8 +103,8 @@ async def control_aire() -> None:
             "status_off": {"es": "apagado", "en": "off"},
             "mode_unknown": {"es": "Desconocido", "en": "Unknown"},
             "msg_status": {
-                "es": "El aire está {estado} en modo {modo} a {temp}°C. Consumo: {watts}W. Acumulado: {total}kWh. Mes: {mes}kWh. Int: {in_t}°C | Ext: {out_t}°C.",
-                "en": "AC is {estado} in {modo} mode at {temp}°C. Power: {watts}W. Total: {total}kWh. Month: {mes}kWh. In: {in_t}°C | Out: {out_t}°C."
+                "es": "El aire está {estado} en modo {modo} a {temp}°C. Consumo: {watts}W. Acumulado: {total}kWh. Int: {in_t}°C | Ext: {out_t}°C.",
+                "en": "The AC is {estado} in {modo} mode at {temp}°C. Power: {watts}W. Total: {total}kWh. In: {in_t}°C | Out: {out_t}°C."
             },
             "msg_hum": {"es": " Humedad: {h}%", "en": " Humidity: {h}%"},
             "msg_ac_power": {"es": "Aire acondicionado {estado}.", "en": "Air conditioner {estado}."},
@@ -166,15 +119,13 @@ async def control_aire() -> None:
         }
         return translations.get(key, {}).get(lang, default)
 
-    # Cargar configuración asíncroamente
-    ip_config, id_config = await load_ac_config()
-    target_ip: str = str(args.ip) if args.ip else ip_config
+    target_ip: str = str(args.ip) if args.ip else IP
     if not target_ip:
         print("✗ No se detectó IP del AC. Usá --ip o configurá settings.json")
         return
 
     try:
-        device: Any = AC(ip=target_ip, port=6444, device_id=id_config)
+        device: Any = AC(ip=target_ip, port=6444, device_id=DEVICE_ID) # type: ignore
 
         # --- CONSULTA DE ESTADO ---
         if args.status:
@@ -204,65 +155,62 @@ async def control_aire() -> None:
             total_kwh: float = 0.0
             try:
                 # 1. Energía Acumulada (Sub-cmd 0x44)
-                for _ in range(5): # 5 intentos para Surrey lento
-                    resps = await device._send_commands_get_responses([EnergyHackCommand(0x44)]) # type: ignore
-                    if resps:
-                        for r in resps:
+                found_energy: bool = False
+                for _ in range(3):
+                    resp_energy = await device._send_commands_get_responses([EnergyHackCommand(0x44)]) # type: ignore
+                    if resp_energy:
+                        for r in resp_energy:
                             if hasattr(r, 'payload') and len(r.payload) > 7 and r.payload[3] == 0x44:
-                                d = r.payload
-                                val_high = decode_bcd(d[4]) * 100 + decode_bcd(d[5])
-                                val_low = decode_bcd(d[6]) + (decode_bcd(d[7]) / 100.0)
+                                # d[4]=1000s, d[5]=100s/10s, d[6]=1s, d[7]=0.1s/0.01s
+                                val_high = decode_bcd(r.payload[4]) * 100 + decode_bcd(r.payload[5])
+                                val_low = decode_bcd(r.payload[6]) + (decode_bcd(r.payload[7]) / 100.0)
                                 total_kwh = val_high + val_low
+                                found_energy = True
                                 break
-                    if total_kwh > 0: break
-                    await asyncio.sleep(0.5)
+                    if found_energy:
+                        break
+                    await asyncio.sleep(0.4)
 
                 # 2. Potencia Instantánea (Sub-cmd 0x43) — solo si está encendido
-                if device.power_state:
+                if device.power_state: # type: ignore
                     for _ in range(3):
-                        resps = await device._send_commands_get_responses([EnergyHackCommand(0x43)]) # type: ignore
-                        if resps:
-                            for r in resps:
+                        resp_power = await device._send_commands_get_responses([EnergyHackCommand(0x43)]) # type: ignore
+                        if resp_power:
+                            found_43: bool = False
+                            for r in resp_power:
                                 if hasattr(r, 'payload') and len(r.payload) > 16 and r.payload[3] == 0x43:
                                     watts = float(r.payload[16] * 10)
+                                    found_43 = True
                                     break
-                        if watts > 0: break
+                            if found_43:
+                                break
                         await asyncio.sleep(0.3)
             except Exception as energy_err:
-                pass
+                if not args.silent:
+                    print(f"Error obteniendo energía: {energy_err}")
             # -----------------------------------
-
-            # --- CÁLCULO DE CONSUMO PERSONALIZADO Fina ---
-            calc_tot, calc_month = process_energy_stats(total_kwh)
 
             msg: str = get_i18n("msg_status", "").format(
                 estado=estado,
                 modo=modo_actual,
                 temp=int(device.target_temperature), # type: ignore
                 watts=int(watts),
-                total=calc_tot,
-                mes=calc_month,
+                total=round(total_kwh, 2), # type: ignore
                 in_t=int(device.indoor_temperature), # type: ignore
                 out_t=int(device.outdoor_temperature or 0) # type: ignore
             )
-            
             if device.indoor_humidity: # type: ignore
                 msg += get_i18n("msg_hum", " Humedad: {h}%").format(h=device.indoor_humidity) # type: ignore
 
-            payload = {
-                "power": bool(device.power_state),
-                "temp": float(device.target_temperature),
+            send_event("ac-status-update", {
+                "power": bool(device.power_state), # type: ignore
+                "temp": float(device.target_temperature), # type: ignore
                 "mode": modo_actual.upper(),
-                "indoor": float(device.indoor_temperature),
-                "outdoor": float(device.outdoor_temperature or 0),
+                "indoor": float(device.indoor_temperature), # type: ignore
+                "outdoor": float(device.outdoor_temperature or 0), # type: ignore
                 "watts": watts,
-                "total_kwh": calc_tot,
-                "monthly_kwh": calc_month
-            }
-            # Siempre imprimir JSON para el Dashboard
-            print(json.dumps(payload))
-
-            send_event("ac-status-update", payload)
+                "total_kwh": round(total_kwh, 2) # type: ignore
+            })
 
             print(msg)
             if not args.silent:
