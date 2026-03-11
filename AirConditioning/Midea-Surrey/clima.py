@@ -311,7 +311,7 @@ async def control_aire() -> None:
             })
             
             # Imprimir JSON para que el panel de Fina lo parsee de forma fiable
-            print(json.dumps({
+            payload = {
                 "power": bool(device.power_state),
                 "temp": float(device.target_temperature),
                 "mode": modo_actual.upper(),
@@ -320,7 +320,12 @@ async def control_aire() -> None:
                 "watts": watts_val,
                 "total_kwh": calc_tot,
                 "monthly_kwh": calc_month
-            }))
+            }
+            print(json.dumps(payload))
+            
+            # PARCHE FINA: Línea de datos puros protegida
+            print(f"FINA_AC_DATA|{payload['power']}|{payload['temp']}|{payload['mode']}|{payload['indoor']}|{payload['outdoor']}|{payload['watts']}|{payload['total_kwh']}|{payload['monthly_kwh']}")
+
             
             # Solo imprimimos texto humano si NO estamos en modo silencioso (para depuración manual)
             if not args.silent:
