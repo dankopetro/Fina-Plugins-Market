@@ -121,13 +121,13 @@ def load_channels() -> Dict[str, str]:
 def get_channel_number(query: str, channel_map: Dict[str, str]) -> Optional[str]:
     """Resuelve nombre o número de canal desde el mapa con motor fonético y difuso"""
     # Si ya es un número (con punto o guión incluidos), usarlo directo
-    if re.match(r'^[\d\.\-]+$', query):
-        return query
+    if re.match(r'^[\d\.\-]+$', str(query)):
+        return str(query)
 
-    q: str = query.lower().replace(" ", "")
+    q: str = str(query).lower().replace(" ", "")
     
     # Motor fonético para arreglar errores del micrófono (OCR)
-    phonetic_map = {
+    phonetic_map: Dict[str, str] = {
         "iespien": "espn", "yespien": "espn", "ispen": "espn", "espen": "espn",
         "iestien": "espn", "iepien": "espn", "eiespien": "espn",
         "focs": "fox", "foks": "fox", 
@@ -139,25 +139,25 @@ def get_channel_number(query: str, channel_map: Dict[str, str]) -> Optional[str]
     }
     
     for k, v in phonetic_map.items():
-        if k in q:
-            q = q.replace(k, v)
+        if k in str(q):
+            q = str(q).replace(k, str(v))
 
     # Búsqueda exacta primero
     if q in channel_map:
-        return channel_map[q]
+        return str(channel_map[q])
         
     # Búsqueda por contención
     for name, number in channel_map.items():
-        if q in name or name in q:
-            return number
+        if str(q) in str(name) or str(name) in str(q):
+            return str(number)
 
     # Fallback a búsqueda difusa
     import difflib
-    matches = difflib.get_close_matches(q, channel_map.keys(), n=1, cutoff=0.6)
+    matches = difflib.get_close_matches(q, list(channel_map.keys()), n=1, cutoff=0.6)
     if matches:
-        matched_key = matches[0]
+        matched_key = str(matches[0])
         print(f"🎯 Mapeado fonético/difuso '{query}' -> {matched_key} -> {channel_map[matched_key]}")
-        return channel_map[matched_key]
+        return str(channel_map[matched_key])
 
     return None
 

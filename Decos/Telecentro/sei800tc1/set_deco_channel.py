@@ -139,7 +139,7 @@ async def main() -> None:
         search_key: str = channel_to_send.lower().replace(" ", "").strip()
         
         # Correcciones fonéticas y de OCR del motor de voz
-        phonetic_map = {
+        phonetic_map: Dict[str, str] = {
             "iespien": "espn", "yespien": "espn", "ispen": "espn", "espen": "espn",
             "iestien": "espn", "iepien": "espn", "eiespien": "espn",
             "focs": "fox", "foks": "fox", 
@@ -150,19 +150,19 @@ async def main() -> None:
             "espor": "sports", "esports": "sports"
         }
         for k, v in phonetic_map.items():
-            if k in search_key:
-                search_key = search_key.replace(k, v)
+            if k in str(search_key):
+                search_key = str(search_key).replace(k, str(v))
 
-        if search_key in channels_map:
-            channel_to_send = channels_map[search_key]
+        if str(search_key) in channels_map:
+            channel_to_send = str(channels_map[str(search_key)])
             print(f"🎯 Mapeado exacto '{args.channel}' -> {channel_to_send}")
         else:
             # Fallback a búsqueda difusa
             import difflib
-            matches = difflib.get_close_matches(search_key, channels_map.keys(), n=1, cutoff=0.6)
+            matches = difflib.get_close_matches(str(search_key), list(channels_map.keys()), n=1, cutoff=0.6)
             if matches:
-                matched_key = matches[0]
-                channel_to_send = channels_map[matched_key]
+                matched_key = str(matches[0])
+                channel_to_send = str(channels_map[str(matched_key)])
                 print(f"🎯 Mapeado por aproximación '{args.channel}' ({search_key}) -> {matched_key} -> {channel_to_send}")
             else:
                 print(f"❌ No se encontró el canal '{args.channel}' ({search_key}) en la configuración.")
