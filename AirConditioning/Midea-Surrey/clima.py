@@ -75,6 +75,10 @@ def process_energy_stats(raw_total: float) -> Tuple[float, float]:
         logger.error(f"Error guardando energy_ac.json: {e}")
 
     # Cálculos
+    if raw_total <= 0:
+        # Si la lectura falló, mantenemos los valores en 0 pero no por error de cálculo
+        return 0.0, 0.0
+
     total_since_feb = float(f"{(float(raw_total) - float(stats['historic_base'])):.2f}")
     current_month_usage = float(f"{(float(raw_total) - float(stats['monthly_base'])):.2f}")
     
@@ -258,18 +262,22 @@ async def control_aire() -> None:
             try:
                 # 1. ENERGÍA: Búsqueda dinámica en buffers de Midea/Surrey
                 for hack in [0x12, 0x44, 0x43]:
-                    resps = await device._send_commands_get_responses([EnergyHackCommand(hack)]) # type: ignore
-                    if resps:
-                        for r in resps:
-                            if getattr(r, 'id', None) in [0xC0, 0xC1] and hasattr(r, 'payload'):
-                                d: bytearray = r.payload
-                                if len(d) >= 8:
-                                    if d[3] == 0x44:
-                                        total_kwh_val = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
-                                    elif d[3] == 0x43 and len(d) > 16:
-                                        raw_w = int(d[16])
-                                        if raw_w > 0:
-                                            watts_val = float(raw_w * 10)
+                    try:
+                        resps = await device._send_commands_get_responses([EnergyHackCommand(hack)]) # type: ignore
+                        if resps:
+                            for r in resps:
+                                if getattr(r, 'id', None) in [0xC0, 0xC1] and hasattr(r, 'payload'):
+                                    d: bytearray = r.payload
+                                    if len(d) >= 8:
+                                        if d[3] == 0x44:
+                                            total_kwh_val = (10000 * decode_bcd(d[4]) + 100 * decode_bcd(d[5]) + 1 * decode_bcd(d[6]) + 0.01 * decode_bcd(d[7]))
+                                        elif d[3] == 0x43 and len(d) > 16:
+                                            raw_w = int(d[16])
+                                            if raw_w > 0:
+                                                watts_val = float(raw_w * 10)
+                        await asyncio.sleep(0.3) # Pausa para no saturar al dispositivo
+                    except Exception:
+                        pass
             except Exception as energy_err:
                 logger.debug(f"Error obteniendo energía: {energy_err}")
 
