@@ -321,11 +321,15 @@ async def control_aire() -> None:
                 "total_kwh": calc_tot,
                 "monthly_kwh": calc_month
             }
+            # Imprimir JSON para que el panel de Fina lo parsee de forma fiable (dashboard moderno)
             print(json.dumps(payload))
             
-            # Solo imprimimos texto humano si NO estamos en modo silencioso (para depuración manual)
+            # Siempre imprimimos el texto humano para que el parser de Regex de la UI lo encuentre
+            print(msg)
+
+            # HABLA: Solo si NO es modo silencioso enviamos el evento para hablar
             if not args.silent:
-                print(msg)
+                send_udp_event("fina-speak", msg)
 
             return
 
