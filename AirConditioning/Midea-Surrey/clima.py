@@ -323,10 +323,6 @@ async def control_aire() -> None:
             }
             print(json.dumps(payload))
             
-            # PARCHE FINA: Línea de datos puros protegida
-            print(f"FINA_AC_DATA|{payload['power']}|{payload['temp']}|{payload['mode']}|{payload['indoor']}|{payload['outdoor']}|{payload['watts']}|{payload['total_kwh']}|{payload['monthly_kwh']}")
-
-            
             # Solo imprimimos texto humano si NO estamos en modo silencioso (para depuración manual)
             if not args.silent:
                 print(msg)
