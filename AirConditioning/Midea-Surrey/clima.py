@@ -302,9 +302,22 @@ async def control_aire() -> None:
                 "raw_total": float(f"{float(total_kwh_val):.2f}")
             })
             
-            print(msg)
+            # Imprimir JSON para que el panel de Fina lo parsee de forma fiable
+            print(json.dumps({
+                "power": bool(device.power_state),
+                "temp": float(device.target_temperature),
+                "mode": modo_actual.upper(),
+                "indoor": float(device.indoor_temperature),
+                "outdoor": float(device.outdoor_temperature or 0),
+                "watts": watts_val,
+                "total_kwh": calc_tot,
+                "monthly_kwh": calc_month
+            }))
+            
+            # Solo imprimimos texto humano si NO estamos en modo silencioso (para depuración manual)
             if not args.silent:
-                send_udp_event("fina-speak", msg)
+                print(msg)
+
             return
 
         # EJECUCIÓN DE ACCIONES
