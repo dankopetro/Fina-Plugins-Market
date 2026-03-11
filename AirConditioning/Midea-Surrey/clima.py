@@ -13,8 +13,8 @@ from msmart.device.AC.command import Command # type: ignore
 from msmart.const import FrameType # type: ignore
 import datetime
 
-# Configuración de logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+# Configuración de logging (Cambiado a WARNING para salida limpia)
+logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("ACControl")
 
 # --- HACK DE ENERGÍA SURREY ---
