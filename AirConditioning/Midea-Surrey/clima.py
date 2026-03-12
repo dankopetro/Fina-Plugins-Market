@@ -25,8 +25,8 @@ class EnergyHackCommand(Command):
         self._payload: bytes = bytes([0x41, 0x24, 0x01, sub_cmd])
 
     def tobytes(self) -> bytes:
-        # p[0:4] ya contiene nuestro payload específico
-        return super().tobytes()
+        # Es vital pasar el payload al tobytes de msmart
+        return super().tobytes(self._payload)
 
 def decode_bcd(d: int) -> float:
     """Decodifica un byte en formato BCD (Binary Coded Decimal)"""
