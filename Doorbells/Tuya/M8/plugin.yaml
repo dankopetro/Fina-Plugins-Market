@@ -1,5 +1,5 @@
 name: "Doorbell"
-version: "3.5.8-22"
+version: "3.5.9"
 description: "Timbre Inteligente V3 (FFmpeg Puro)"
 main: "doorbell_status.py"
 scripts:

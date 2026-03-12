@@ -147,19 +147,40 @@ async def control_aire() -> None:
     if not target_ip: return
 
     try:
-        # Port 6444 is standard for V3, but some devices use 8787
-        device = AC(ip=target_ip, port=6444, device_id=id_config)
+        # Intentar detectar el puerto rápido (6444 o 8787) para evitar lag de 5s
+        ports = [6444, 8787]
+        device = None
+        
+        for port in ports:
+            try:
+                temp_device = AC(ip=target_ip, port=port, device_id=id_config)
+                # Timeout corto para la prueba inicial
+                await asyncio.wait_for(temp_device.refresh(), timeout=1.5)
+                if temp_device.online:
+                    device = temp_device
+                    break
+            except:
+                continue
+
+        if not device:
+            # Fallback al puerto estándar si nada respondió rápido
+            device = AC(ip=target_ip, port=6444, device_id=id_config)
         
         if args.status:
             connected = False
-            for _ in range(3):
-                try:
-                    await device.refresh()
-                    if device.online:
-                        connected = True
-                        break
-                except: pass
-                await asyncio.sleep(1)
+            # Si ya refrescamos arriba, device.online debería ser True
+            if device.online:
+                connected = True
+            else:
+                # Reintento final si falló lo anterior
+                for _ in range(2):
+                    try:
+                        await device.refresh()
+                        if device.online:
+                            connected = True
+                            break
+                    except: pass
+                    await asyncio.sleep(0.5)
             
             if not connected:
                 print(get_i18n("err_offline", "Offline"))

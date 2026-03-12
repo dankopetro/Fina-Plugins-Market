@@ -1,5 +1,5 @@
 name: "Clima"
-version: "1.0.0"
+version: "1.1.0"
 description: "Control del Aire Acondicionado Surrey (Midea)"
 main: "clima.py"
 enabled: true
