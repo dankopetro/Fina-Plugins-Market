@@ -50,7 +50,7 @@ def load_tcl_config() -> Tuple[str, str]:
                 pass
     
     # Fallback legacy si no hay config
-    return "192.168.0.10", "34:51:80:f9:86:4a"
+    return "0.0.0.0", "00:00:00:00:00:00"
 
 TARGET_IP, TARGET_MAC = load_tcl_config()
 

@@ -21,13 +21,12 @@ logger = logging.getLogger("ACControl")
 class EnergyHackCommand(Command):
     """Comando especial para consultar consumo en equipos Midea/Surrey"""
     def __init__(self, sub_cmd: int) -> None:
-        super().__init__(FrameType.QUERY)
+        super().__init__(FrameType.QUERY) # type: ignore
         self._payload: bytes = bytes([0x41, 0x24, 0x01, sub_cmd])
 
     def tobytes(self) -> bytes:
-        p: bytearray = bytearray(20)
-        p[0:4] = self._payload
-        return super().tobytes(p)
+        # p[0:4] ya contiene nuestro payload específico
+        return super().tobytes()
 
 def decode_bcd(d: int) -> float:
     """Decodifica un byte en formato BCD (Binary Coded Decimal)"""
@@ -43,7 +42,9 @@ def process_energy_stats(raw_total: float) -> Tuple[float, float]:
     """Calcula el consumo acumulado vs base histórica y mensual."""
     energy_file = os.path.join(get_config_dir(), "energy_ac.json")
     now = datetime.datetime.now()
-    stats = {"historic_base": 4960.0, "monthly_base": 5014.32, "last_month_tracked": now.month}
+    # Los valores base se inicializan en 0.0 para ser genéricos.
+    # El sistema se calibrará automáticamente al primer uso guardando el estado actual.
+    stats = {"historic_base": 0.0, "monthly_base": 0.0, "last_month_tracked": now.month}
     
     if os.path.exists(energy_file):
         try:
@@ -62,9 +63,16 @@ def process_energy_stats(raw_total: float) -> Tuple[float, float]:
     except:
         pass
 
-    if raw_total <= 0: return 0.0, 0.0
+    # Si es la primera vez (base 0), calibramos con el valor actual
+    if stats["historic_base"] == 0.0:
+        stats["historic_base"] = float(raw_total)
+    if stats["monthly_base"] == 0.0:
+        stats["monthly_base"] = float(raw_total)
+
     total = float(f"{(float(raw_total) - float(stats['historic_base'])):.2f}")
     month = float(f"{(float(raw_total) - float(stats['monthly_base'])):.2f}")
+    
+    # Aseguramos que los valores sean positivos
     return max(0.0, total), max(0.0, month)
 
 async def discover_ac_id(ip: str) -> int:
@@ -80,7 +88,7 @@ async def discover_ac_id(ip: str) -> int:
 async def load_ac_config() -> Tuple[str, int]:
     config_dir = get_config_dir()
     settings_path = os.path.join(config_dir, "settings.json")
-    ip, device_id = "192.168.0.213", 0
+    ip, device_id = "0.0.0.0", 0
     
     if os.path.exists(settings_path):
         try:
@@ -139,6 +147,7 @@ async def control_aire() -> None:
     if not target_ip: return
 
     try:
+        # Port 6444 is standard for V3, but some devices use 8787
         device = AC(ip=target_ip, port=6444, device_id=id_config)
         
         if args.status:
@@ -166,17 +175,20 @@ async def control_aire() -> None:
             # --- MEDICIÓN DE ENERGÍA (HACK SURREY) ---
             for sub_cmd in [0x12, 0x44, 0x43]:
                 try:
-                    resps = await device._send_commands_get_responses([EnergyHackCommand(sub_cmd)])
+                    # Usamos el método interno para enviar comandos custom (hack de energía)
+                    # Ignoramos el aviso de miembro protegido ya que es necesario para este hack
+                    resps = await device._send_commands_get_responses([EnergyHackCommand(sub_cmd)]) # type: ignore
                     if resps:
                         for r in resps:
-                            if hasattr(r, 'payload') and len(r.payload) > 7:
-                                p = r.payload
+                            # r es de tipo Response, verificamos payload de forma segura
+                            payload = getattr(r, 'payload', None)
+                            if payload and len(payload) > 7:
                                 # Si es la trama de Energía (0x44)
-                                if p[3] == 0x44:
-                                    total_kwh_val = (10000 * decode_bcd(p[4]) + 100 * decode_bcd(p[5]) + 1 * decode_bcd(p[6]) + 0.01 * decode_bcd(p[7]))
+                                if payload[3] == 0x44:
+                                    total_kwh_val = (10000 * decode_bcd(payload[4]) + 100 * decode_bcd(payload[5]) + 1 * decode_bcd(payload[6]) + 0.01 * decode_bcd(payload[7]))
                                 # Si es la trama de Watts (0x43)
-                                elif p[3] == 0x43 and len(p) > 16:
-                                    watts_val = float(p[16] * 10)
+                                elif payload[3] == 0x43 and len(payload) > 16:
+                                    watts_val = float(payload[16] * 10)
                     await asyncio.sleep(0.3)
                 except: pass
 

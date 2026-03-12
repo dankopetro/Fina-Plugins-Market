@@ -54,7 +54,7 @@ def load_deco_ip() -> str:
                                 if tv.get("type") == "sei800tc1" or "deco" in str(tv.get("name", "")).lower():
                                     return str(tv.get("ip"))
             except Exception: pass
-    return "192.168.0.9" # Fallback razonable para la red local
+    return "0.0.0.0" # Placeholder genérico
 
 # Configuración dinámica
 BASE_DIR: str = os.path.dirname(os.path.abspath(__file__))
