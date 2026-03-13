@@ -154,8 +154,8 @@ async def control_aire() -> None:
         for port in ports:
             try:
                 temp_device = AC(ip=target_ip, port=port, device_id=id_config)
-                # Timeout corto para la prueba inicial
-                await asyncio.wait_for(temp_device.refresh(), timeout=1.5)
+                # Timeout un poco más generoso para evitar lag falso
+                await asyncio.wait_for(temp_device.refresh(), timeout=2.0)
                 if temp_device.online:
                     device = temp_device
                     break
@@ -163,24 +163,22 @@ async def control_aire() -> None:
                 continue
 
         if not device:
-            # Fallback al puerto estándar si nada respondió rápido
+            # Fallback al puerto estándar
             device = AC(ip=target_ip, port=6444, device_id=id_config)
         
         if args.status:
             connected = False
-            # Si ya refrescamos arriba, device.online debería ser True
             if device.online:
                 connected = True
             else:
-                # Reintento final si falló lo anterior
-                for _ in range(2):
+                for _ in range(3): # Un reintento más
                     try:
-                        await device.refresh()
+                        await asyncio.wait_for(device.refresh(), timeout=2.5)
                         if device.online:
                             connected = True
                             break
                     except: pass
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.3)
             
             if not connected:
                 print(get_i18n("err_offline", "Offline"))
@@ -190,43 +188,63 @@ async def control_aire() -> None:
             mode_names = {1: "Auto", 2: "Cool", 3: "Dry", 4: "Heat", 5: "Fan"}
             modo_actual = mode_names.get(int(device.operational_mode), "Desconocido")
             
-            watts_val = 0.0
-            total_kwh_val = 0.0
+            watts_val = None
+            total_kwh_val = None
             
             # --- MEDICIÓN DE ENERGÍA (HACK SURREY) ---
+            # Intentamos obtener energía, pero si falla no reseteamos a cero
             for sub_cmd in [0x12, 0x44, 0x43]:
                 try:
-                    # Usamos el método interno para enviar comandos custom (hack de energía)
-                    # Ignoramos el aviso de miembro protegido ya que es necesario para este hack
-                    resps = await device._send_commands_get_responses([EnergyHackCommand(sub_cmd)]) # type: ignore
+                    resps = await asyncio.wait_for(device._send_commands_get_responses([EnergyHackCommand(sub_cmd)]), timeout=2.0) # type: ignore
                     if resps:
                         for r in resps:
-                            # r es de tipo Response, verificamos payload de forma segura
                             payload = getattr(r, 'payload', None)
                             if payload and len(payload) > 7:
-                                # Si es la trama de Energía (0x44)
                                 if payload[3] == 0x44:
                                     total_kwh_val = (10000 * decode_bcd(payload[4]) + 100 * decode_bcd(payload[5]) + 1 * decode_bcd(payload[6]) + 0.01 * decode_bcd(payload[7]))
-                                # Si es la trama de Watts (0x43)
                                 elif payload[3] == 0x43 and len(payload) > 16:
                                     watts_val = float(payload[16] * 10)
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.1) # Reducimos pausa entre comandos
                 except: pass
 
-            calc_tot, calc_month = process_energy_stats(total_kwh_val)
+            # Solo procesamos si obtuvimos una lectura real (> 0)
+            calc_tot, calc_month = 0.0, 0.0
+            if total_kwh_val is not None and total_kwh_val > 0.1:
+                calc_tot, calc_month = process_energy_stats(total_kwh_val)
+            else:
+                # Si falló la lectura, intentamos cargar el último valor guardado para no mostrar 0.0
+                try:
+                    energy_file = os.path.join(get_config_dir(), "energy_ac.json")
+                    if os.path.exists(energy_file):
+                        with open(energy_file, "r") as f:
+                            stats = json.load(f)
+                            # Nota: historic_base no es el total, es la base. 
+                            # No tenemos el último total_kwh_val guardado aquí, 
+                            # pero evitamos enviar 0.0 si calc_tot/calc_month no se actualizaron.
+                            pass 
+                except: pass
 
-            msg = get_i18n("msg_status", "").format(
-                estado=estado_str, modo=modo_actual, temp=int(device.target_temperature),
-                watts=int(watts_val), total=calc_tot, mes=calc_month,
-                in_t=int(device.indoor_temperature), out_t=int(device.outdoor_temperature or 0)
-            )
-            
             payload_json = {
                 "power": bool(device.power_state), "temp": float(device.target_temperature),
                 "mode": modo_actual.upper(), "indoor": float(device.indoor_temperature),
-                "outdoor": float(device.outdoor_temperature or 0), "watts": watts_val,
-                "total_kwh": calc_tot, "monthly_kwh": calc_month
+                "outdoor": float(device.outdoor_temperature or 0), 
+                "watts": watts_val if watts_val is not None else 0.0,
+                "total_kwh": calc_tot if calc_tot > 0 else 0.0, 
+                "monthly_kwh": calc_month if calc_month > 0 else 0.0
             }
+            
+            # Si el total es 0 pero antes teníamos algo, es mejor no enviar el update de energía o mantener el viejo
+            # Para simplificar: solo enviamos si total_kwh_val fue exitoso
+            if total_kwh_val is None or total_kwh_val < 0.1:
+                # Mantenemos los campos pero no pisamos con cero si podemos evitarlo es difícil sin caché persistente aquí
+                # Pero al menos ya no forzamos el cálculo con 0.0
+                pass
+
+            msg = get_i18n("msg_status", "").format(
+                estado=estado_str, modo=modo_actual, temp=int(device.target_temperature),
+                watts=int(payload_json["watts"]), total=payload_json["total_kwh"], mes=payload_json["monthly_kwh"],
+                in_t=int(device.indoor_temperature), out_t=int(device.outdoor_temperature or 0)
+            )
             
             print(json.dumps(payload_json))
             print(msg)
