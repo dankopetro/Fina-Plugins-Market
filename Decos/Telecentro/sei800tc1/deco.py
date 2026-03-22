@@ -298,7 +298,8 @@ class DecoPlugin:
         """Ejecuta un script auxiliar de forma asíncrona"""
         script_path: Optional[str] = self._get_helper_script(target, action)
         if script_path:
-            subprocess.Popen(["python3", script_path] + args) # type: ignore
+            import sys
+            subprocess.Popen([sys.executable, script_path] + args) # type: ignore
             label: str = str(target.get("name", target.get("room", "TV")))
             return f"Ejecutando {action} en {label}."
         return f"Controlador para {action} no disponible."
