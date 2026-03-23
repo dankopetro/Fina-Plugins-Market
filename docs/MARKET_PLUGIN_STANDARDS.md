@@ -107,6 +107,15 @@ Lavarropas, heladeras y hornos inteligentes (Samsung, LG, Haier).
 | `appliance_start.py`| Iniciar ciclo (lavado/etc)| `--mode [normal/fast]`|
 | `appliance_status.py`| Tiempo restante/estado | |
 
+### 🧊 Categoría: `Refrigerators`
+Heladeras y congeladores inteligentes.
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `fridge_status.py` | Temperatura actual y modo | |
+| `set_fridge_temp.py`| Ajustar temperatura | `--temp [N]` |
+| `fridge_inventory.py`| Lista de ítems faltantes | |
+
 ---
 
 ## 📝 El archivo `plugin.yaml`
