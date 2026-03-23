@@ -52,6 +52,61 @@ Control de seguridad y video-porteros.
 | `monitor.py` | Iniciar visualización rápida | Argumento `--trigger` |
 | `hangup_doorbell.py`| Cerrar comunicación | |
 
+### 💡 Categoría: `Lights` y `SmartHome`
+Control de iluminación y enchufes inteligentes.
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `lights_on.py` | Encender todas las luces | |
+| `lights_off.py` | Apagar todas las luces | |
+| `set_brightness.py` | Ajustar nivel de brillo | `--level [0-100]` |
+| `set_color.py` | Cambiar color (RGB/Hex) | `--hex [#FFFFFF]` |
+
+### 🧹 Categoría: `Robots`
+Aspiradoras y robots de limpieza (Roomba, Roborock, etc).
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `robot_clean.py` | Iniciar limpieza completa | |
+| `robot_stop.py` | Detener y volver a base | |
+| `robot_status.py` | Estado de batería y depósito| |
+
+### 🔒 Categoría: `Locks`
+Cerraduras inteligentes (Nuki, August, etc).
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `lock_door.py` | Cerrar con llave | |
+| `unlock_door.py` | Abrir cerradura | |
+| `lock_status.py` | Saber si está bloqueada | |
+
+### 💧 Categoría: `Irrigation` y `Blinds`
+Zonas de riego y persianas/cortinas.
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `irrigation_on.py` | Iniciar riego | `--zone [1-9]` |
+| `irrigation_off.py`| Detener riego | |
+| `blinds_open.py` | Abrir persianas | `--level [0-100]` |
+| `blinds_close.py` | Cerrar persianas | |
+
+### ⚡ Categoría: `Energy`
+Inversores solares y cargadores de vehículos eléctricos (Tesla, Wallbox, Fronius).
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `power_status.py` | Producción solar actual | |
+| `battery_status.py`| Carga de batería/auto | |
+| `start_charge.py` | Iniciar carga EV | |
+
+### 🧺 Categoría: `Appliances`
+Lavarropas, heladeras y hornos inteligentes (Samsung, LG, Haier).
+
+| Script | Acción | Argumentos |
+| :--- | :--- | :--- |
+| `appliance_start.py`| Iniciar ciclo (lavado/etc)| `--mode [normal/fast]`|
+| `appliance_status.py`| Tiempo restante/estado | |
+
 ---
 
 ## 📝 El archivo `plugin.yaml`
