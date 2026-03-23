@@ -288,9 +288,38 @@ class DecoPlugin:
             return "Silenciado."
         elif intent_name == "deco_set_channel":
             import re
-            match = re.search(r'(?:canal|el)\s+(\w+)', command.lower())
+            match = re.search(r'(?:canal|el)?\s*(\w+)', command.lower())
             channel: str = match.group(1) if match else command.split()[-1]
             return self._run_script(target, "set_deco_channel", ["--ip", target_ip, "--channel", channel])
+        
+        elif intent_name == "deco_set_volume":
+            import re
+            match = re.search(r'\d+', command)
+            vol = match.group(0) if match else "20"
+            return self._run_script(target, "deco_set_volume", ["--ip", target_ip, vol])
+
+        elif intent_name == "deco_open_app":
+            app_map = {
+                "youtube": "com.google.android.youtube.tv",
+                "netflix": "com.netflix.ninja",
+                "spotify": "com.spotify.tv.android",
+                "prime": "com.amazon.amazonvideo.livingroom",
+                "disney": "com.disney.disneyplus",
+                "star": "com.disney.starplus",
+                "hbo": "com.hbo.hbonow",
+                "flow": "com.flow.android.tv",
+                "telecentro": "com.telecentro.play"
+            }
+            target_app = command.lower().replace("abrir", "").replace("pone", "").replace("pon", "").replace("en el deco", "").strip()
+            package = app_map.get(target_app, target_app)
+            return self._run_script(target, "launch_deco_app", ["--ip", target_ip, "--package", package])
+
+        elif intent_name == "deco_exit_app":
+            return self._run_script(target, "deco_remote_helper", ["--ip", target_ip, "key", "KEYCODE_HOME"])
+
+        elif intent_name == "deco_set_input":
+            inp = command.lower().replace("entrada", "").replace("pon el deco en", "").replace("pon la", "").strip()
+            return self._run_script(target, "set_input_deco", ["--ip", target_ip, "--input", inp])
         
         return None
 
