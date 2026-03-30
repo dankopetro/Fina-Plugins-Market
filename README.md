@@ -1,7 +1,36 @@
-# 🌌 Fina Plugins Market: Estándares de Desarrollo Universal
+# 🏪 Fina Plugins Market
 
+¡Bienvenido al mercado oficial de plugins para **Fina Ergen**! Aquí puedes encontrar extensiones comunitarias para controlar tus dispositivos y añadir nuevas capacidades a la IA.
+
+---
+
+## 📂 Catálogo de Plugins (Disponibles ahora)
+
+### 📺 Televisores (TVs)
+*   **[TCL - tcl32s60a](./TVs/TCL/tcl32s60a)**: Control total para el modelo TCL 32S60A y compatibles con Android TV via ADB.
+
+### 📼 Decodificadores (Decos)
+*   **[Telecentro - sei800tc1](./Decos/Telecentro/sei800tc1)**: Gestión de canales y volumen para decodificadores SEI800TC1 de Telecentro y similares.
+
+### 🔔 Timbres (Doorbells)
+*   **[Tuya - M8](./Doorbells/Tuya/M8)**: Integración con Timbre Tuya M8. Visualización de cámara y notificaciones en tiempo real.
+
+### ❄️ Aire Acondicionado (AC)
+*   **[Midea / Surrey](./AirConditioning/Midea-Surrey)**: Control de temperatura, modos y potencia para equipos Surrey/Midea.
+
+---
+
+## 🛠️ Cómo instalar un Plugin manualmente
+1. Descarga la carpeta del plugin que te interese desde este catálogo.
+2. Cópiala dentro de la carpeta `plugins/` en la configuración de la PC destino (`~/.config/Fina/plugins/`).
+3. Reinicia Fina. ¡Listo! El asistente reconocerá automáticamente los nuevos comandos por voz o botones.
+
+---
+
+# 🌌 Guía de Creación de Plugins (SDK y Estándares de Desarrollo Universal)
+
+Si deseas programar un nuevo módulo para controlar un hardware no listado arriba, aquí tienes la guía.
 Para que un plugin sea compatible con la interfaz "Zero-Config" de Fina Ergen, debe seguir esta estructura estrictamente. Esto permite que Fina localice automáticamente los scripts necesarios para los botones de la App sin importar el hardware del usuario.
-
 ## 📂 Estructura de Directorios
 
 El repositorio del Market se organiza por **Categoría**, **Marca** y **Modelo**. Fina descargará el plugin y lo ubicará en `~/.config/Fina/plugins/`.
